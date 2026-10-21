@@ -57,7 +57,18 @@ make migrate-up
 
 日誌是 JSON。`card_number`、`authorization` 這類欄位在寫出時會變成 `***`，不要把整份 HTTP request 或外部回應 body 丟進日誌。
 
+已存在的環境變數優先於 `.env`。沒有 `.env` 也可以，只要環境裡有 `DATABASE_URL`。`/healthz` 不查資料庫；`/readyz` 會 ping，資料庫不通時回 503。`cmd/worker` 目前只會啟動、寫一行日誌，並在 SIGTERM 或 SIGINT 時退出。
+
 ```sh
 cp .env.example .env
+go run ./cmd/api
+```
+
+另一個終端機：
+
+```sh
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/healthz
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/readyz
+go run ./cmd/worker
 ```
 

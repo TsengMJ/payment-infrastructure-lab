@@ -24,6 +24,9 @@ components:
   dispute:    { in: internal/dispute/** }
   fx:         { in: internal/fx/** }
   ops:        { in: internal/ops/** }
+  # cmd is the composition root: the only place that may import every module.
+  cmdAPI:     { in: cmd/api/** }
+  cmdWorker:  { in: cmd/worker/** }
 
 # platform has no entry: it may not import any project component.
 deps:
@@ -42,3 +45,5 @@ deps:
   dispute:    { mayDependOn: [platform] }
   fx:         { mayDependOn: [platform] }
   ops:        { mayDependOn: [platform] }
+  cmdAPI:     { anyProjectDeps: true }
+  cmdWorker:  { anyProjectDeps: true }
