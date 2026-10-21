@@ -21,3 +21,16 @@
 | `make lint` | 模組 import 邊界檢查 |
 | `make up` | 啟動本機 Postgres，等到健康檢查通過 |
 | `make down` | 停止本機環境（保留資料） |
+
+## 本機資料庫
+
+第一次使用前複製本機設定（已在 `.gitignore`，不會被 commit）：
+
+```sh
+cp deploy/compose/env.example deploy/compose/.env
+make up
+docker compose -f deploy/compose/docker-compose.yml --env-file deploy/compose/.env \
+  exec postgres psql -U payment -d payment_dev -c 'select 1'
+```
+
+Postgres 只綁 `127.0.0.1:5432`（可用 `POSTGRES_PORT` 改）。要連資料一起刪除時，手動執行上面的 `docker compose ... down -v`。
