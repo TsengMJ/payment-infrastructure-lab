@@ -46,7 +46,11 @@ func main() {
 		_ = shutdown(context.Background())
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			logger.Error("database close", "error", err.Error())
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

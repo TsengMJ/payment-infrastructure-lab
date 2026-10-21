@@ -6,10 +6,11 @@
 
 | 工具 | 版本 | 用途 |
 |---|---|---|
-| Go | 1.27.2（`go.mod` 的 `toolchain`；較舊的 Go 1.21+ 會自動下載這一版） | 編譯與測試 |
+| Go | 1.27.3（`go.mod` 的 `toolchain`；較舊的 Go 1.21+ 會自動下載這一版） | 編譯與測試 |
 | GNU make | 3.81 以上 | 固定指令入口 |
 | Docker + Docker Compose | Compose v2 以上 | 本機 Postgres（`make up`） |
 | Atlas | 1.3.0（`deploy/atlas/Dockerfile` 以 `arigaio/atlas:1.3.0-alpine` 建本地 image，不需全域安裝） | schema migration |
+| gitleaks | `ghcr.io/gitleaks/gitleaks:v8.30.1`（`make secrets` 用 Docker 跑，不需全域安裝） | 掃目前檔案裡的 secret |
 
 其他 Go 工具（例如 lint）由 `go.mod` 釘住版本，透過 `go tool` 執行，不需要全域安裝。
 
@@ -20,7 +21,10 @@
 | `make build` | `go build ./...` |
 | `make test` / `make test-unit` | 單元測試。不需要 Docker |
 | `make test-integration` | 用 testcontainers 起 Postgres、跑 migration、再跑整合測試 |
-| `make lint` | 模組 import 邊界檢查 |
+| `make lint` | import 邊界，再加上 govet、staticcheck、errcheck、unused、ineffassign |
+| `make vuln` | `govulncheck ./...` |
+| `make gosec` | gosec。有發現就失敗 |
+| `make secrets` | gitleaks `v8.30.1` 只掃目前檔案，不掃 git 歷史 |
 | `make up` | 啟動本機 Postgres，等到健康檢查通過 |
 | `make up-observability` | 啟動 Postgres，再加上 OpenTelemetry Collector、Tempo、Prometheus、Grafana |
 | `make down` | 停止本機環境（含 observability profile，保留資料） |

@@ -1,9 +1,19 @@
-.PHONY: build test test-unit test-integration lint up up-observability down migrate-up migrate-down migrate-diff atlas-image
+.PHONY: build test test-unit test-integration lint vuln gosec secrets up up-observability down migrate-up migrate-down migrate-diff atlas-image
 
 COMPOSE_ENV := deploy/compose/.env
 COMPOSE := docker compose -f deploy/compose/docker-compose.yml --env-file $(COMPOSE_ENV)
 
+define require-postgres-password
+	set -eu; \
+	set -a; . ./$(COMPOSE_ENV); set +a; \
+	if [ -z "$${POSTGRES_PASSWORD}" ]; then \
+		echo "set POSTGRES_PASSWORD in deploy/compose/.env (copy env.example)" >&2; \
+		exit 1; \
+	fi
+endef
+
 ATLAS_IMAGE := payment-lab-atlas:1.3.0
+GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.30.1
 
 build:
 	go build ./...
@@ -18,11 +28,23 @@ test-integration: bin/.atlas-image
 
 lint:
 	go tool go-arch-lint check
+	go tool golangci-lint run
+
+vuln:
+	go tool govulncheck ./...
+
+gosec:
+	go tool gosec ./...
+
+secrets:
+	docker run --rm -v "$(CURDIR)":/repo -w /repo $(GITLEAKS_IMAGE) detect --no-git --source . --config .gitleaks.toml --redact -v
 
 up: $(COMPOSE_ENV)
+	@$(call require-postgres-password)
 	$(COMPOSE) up -d --wait
 
 up-observability: $(COMPOSE_ENV)
+	@$(call require-postgres-password)
 	$(COMPOSE) --profile observability up -d --wait
 
 down: $(COMPOSE_ENV)

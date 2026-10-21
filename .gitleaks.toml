@@ -1,0 +1,9 @@
+title = "payment-infrastructure-lab"
+
+[extend]
+useDefault = true
+
+# No allowlist entries. A scan of this tree did not match local-dev-only or the
+# compose password line. gitleaks rejects an allowlist with no checks, so the
+# section is omitted. When one string must be allowed, add it here with the
+# reason on the same line. Do not disable a rule.
