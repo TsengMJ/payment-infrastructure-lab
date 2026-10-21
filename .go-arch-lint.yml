@@ -32,7 +32,9 @@ components:
 # It may import its own subpackages (clock, log, testutil).
 deps:
   platform:   { mayDependOn: [platform] }
-  merchant:   { mayDependOn: [platform] }
+  # merchant may import its own internal store, the same way platform
+  # imports clock and testutil.
+  merchant:   { mayDependOn: [platform, merchant] }
   payment:    { mayDependOn: [platform] }
   connector:  { mayDependOn: [platform] }
   refund:     { mayDependOn: [platform] }
