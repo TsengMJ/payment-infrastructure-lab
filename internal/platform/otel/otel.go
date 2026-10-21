@@ -93,11 +93,16 @@ func HTTPMiddleware(service string, opts ...otelhttp.Option) func(http.Handler) 
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return routePattern(r)
 		}),
-		otelhttp.WithMetricAttributesFn(func(r *http.Request) []attribute.KeyValue {
-			return []attribute.KeyValue{attribute.String("http.route", routePattern(r))}
-		}),
 	}
-	return otelhttp.NewMiddleware(service, append(base, opts...)...)
+	inner := otelhttp.NewMiddleware(service, append(base, opts...)...)
+	return func(next http.Handler) http.Handler {
+		return inner(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if labeler, ok := otelhttp.LabelerFromContext(r.Context()); ok {
+				labeler.Add(attribute.String("http.route", routePattern(r)))
+			}
+			next.ServeHTTP(w, r)
+		}))
+	}
 }
 
 func routePattern(r *http.Request) string {
