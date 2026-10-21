@@ -18,7 +18,8 @@
 | 指令 | 做什麼 |
 |---|---|
 | `make build` | `go build ./...` |
-| `make test` | `go test ./...` |
+| `make test` / `make test-unit` | 單元測試。不需要 Docker |
+| `make test-integration` | 用 testcontainers 起 Postgres、跑 migration、再跑整合測試 |
 | `make lint` | 模組 import 邊界檢查 |
 | `make up` | 啟動本機 Postgres，等到健康檢查通過 |
 | `make down` | 停止本機環境（保留資料） |

@@ -1,4 +1,4 @@
-.PHONY: build test lint up down migrate-up migrate-down migrate-diff atlas-image
+.PHONY: build test test-unit test-integration lint up down migrate-up migrate-down migrate-diff atlas-image
 
 COMPOSE_ENV := deploy/compose/.env
 COMPOSE := docker compose -f deploy/compose/docker-compose.yml --env-file $(COMPOSE_ENV)
@@ -8,8 +8,13 @@ ATLAS_IMAGE := payment-lab-atlas:1.3.0
 build:
 	go build ./...
 
-test:
+test: test-unit
+
+test-unit:
 	go test ./...
+
+test-integration: bin/.atlas-image
+	go test -tags=integration ./...
 
 lint:
 	go tool go-arch-lint check
