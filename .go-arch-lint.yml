@@ -1,0 +1,44 @@
+# Module import boundaries. See docs/adr/0001-module-boundaries.md.
+# Opening a cross-module call means adding one edge to that module's
+# mayDependOn in the same change.
+version: 3
+workdir: .
+
+allow:
+  depOnAnyVendor: true
+
+components:
+  platform:   { in: internal/platform/** }
+  merchant:   { in: internal/merchant/** }
+  payment:    { in: internal/payment/** }
+  connector:  { in: internal/connector/** }
+  refund:     { in: internal/refund/** }
+  ledger:     { in: internal/ledger/** }
+  settlement: { in: internal/settlement/** }
+  payout:     { in: internal/payout/** }
+  onboarding: { in: internal/onboarding/** }
+  webhook:    { in: internal/webhook/** }
+  risk:       { in: internal/risk/** }
+  checkout:   { in: internal/checkout/** }
+  billing:    { in: internal/billing/** }
+  dispute:    { in: internal/dispute/** }
+  fx:         { in: internal/fx/** }
+  ops:        { in: internal/ops/** }
+
+# platform has no entry: it may not import any project component.
+deps:
+  merchant:   { mayDependOn: [platform] }
+  payment:    { mayDependOn: [platform] }
+  connector:  { mayDependOn: [platform] }
+  refund:     { mayDependOn: [platform] }
+  ledger:     { mayDependOn: [platform] }
+  settlement: { mayDependOn: [platform] }
+  payout:     { mayDependOn: [platform] }
+  onboarding: { mayDependOn: [platform] }
+  webhook:    { mayDependOn: [platform] }
+  risk:       { mayDependOn: [platform] }
+  checkout:   { mayDependOn: [platform] }
+  billing:    { mayDependOn: [platform] }
+  dispute:    { mayDependOn: [platform] }
+  fx:         { mayDependOn: [platform] }
+  ops:        { mayDependOn: [platform] }
