@@ -22,7 +22,8 @@
 | `make test-integration` | 用 testcontainers 起 Postgres、跑 migration、再跑整合測試 |
 | `make lint` | 模組 import 邊界檢查 |
 | `make up` | 啟動本機 Postgres，等到健康檢查通過 |
-| `make down` | 停止本機環境（保留資料） |
+| `make up-observability` | 啟動 Postgres，再加上 OpenTelemetry Collector、Tempo、Prometheus、Grafana |
+| `make down` | 停止本機環境（含 observability profile，保留資料） |
 | `make migrate-up` | 套用 `merchant`、`payment` 的 migration。已套用過再跑會成功結束 |
 | `make migrate-down` | 撤銷這兩個目錄裡已套用的 migration。只允許連到 `127.0.0.1`；I-17.03 會刪掉這個指令 |
 | `make migrate-diff MODULE=<module> NAME=<change>` | 依 `schema/<module>.hcl` 產生下一支 migration。`MODULE` 是 `merchant` 或 `payment` |
@@ -59,6 +60,17 @@ make migrate-up
 日誌是 JSON。`card_number`、`authorization` 這類欄位在寫出時會變成 `***`，不要把整份 HTTP request 或外部回應 body 丟進日誌。
 
 已存在的環境變數優先於 `.env`。沒有 `.env` 也可以，只要環境裡有 `DATABASE_URL`。`/healthz` 不查資料庫；`/readyz` 會 ping，資料庫不通時回 503。`cmd/worker` 目前只會啟動、寫一行日誌，並在 SIGTERM 或 SIGINT 時退出。
+
+## 本機追蹤與指標
+
+`make up` 不會啟動 Grafana。要看 trace 與請求數：
+
+```sh
+make up-observability
+```
+
+Grafana 在 `http://127.0.0.1:3000`，Prometheus 與 Tempo 的 datasource 已由檔案寫入，不用在畫面上新增。Prometheus 對宿主機開在 `http://127.0.0.1:9091`（容器內仍是 9090；宿主機的 9090 常被本機 proxy 佔用）。API 仍在宿主機跑。Prometheus 抓 `host.docker.internal:8080/metrics`。把 `.env` 裡的 `OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317` 打開後再啟動 API，trace 才會送到 collector。沒設這個變數時，行程仍會產生 span，日誌裡仍有 `trace_id`。日誌留在標準輸出，這次不送進 Loki。請求數在 Grafana 查 `http_server_request_duration_seconds_count`，label 用 `http_route`，不要用原始路徑。
+
 
 ```sh
 cp .env.example .env

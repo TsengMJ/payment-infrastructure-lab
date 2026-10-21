@@ -1,4 +1,4 @@
-.PHONY: build test test-unit test-integration lint up down migrate-up migrate-down migrate-diff atlas-image
+.PHONY: build test test-unit test-integration lint up up-observability down migrate-up migrate-down migrate-diff atlas-image
 
 COMPOSE_ENV := deploy/compose/.env
 COMPOSE := docker compose -f deploy/compose/docker-compose.yml --env-file $(COMPOSE_ENV)
@@ -22,8 +22,11 @@ lint:
 up: $(COMPOSE_ENV)
 	$(COMPOSE) up -d --wait
 
+up-observability: $(COMPOSE_ENV)
+	$(COMPOSE) --profile observability up -d --wait
+
 down: $(COMPOSE_ENV)
-	$(COMPOSE) down
+	$(COMPOSE) --profile observability down
 
 atlas-image: bin/.atlas-image
 
