@@ -55,6 +55,8 @@ make migrate-up
 
 `.env` 不會被 commit。`DATABASE_URL` 沒有預設值，缺了就無法啟動，錯誤會指出變數名稱。範例裡的密碼 `local-dev-only` 只給本機 compose 用。
 
+日誌是 JSON。`card_number`、`authorization` 這類欄位在寫出時會變成 `***`，不要把整份 HTTP request 或外部回應 body 丟進日誌。
+
 ```sh
 cp .env.example .env
 ```
