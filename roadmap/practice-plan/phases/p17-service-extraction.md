@@ -48,6 +48,7 @@
 - **先想清楚**：
   1. expand、migrate、contract 三步各自要部署幾次？
   2. 回填大量資料時怎麼避免鎖表？
+  3. 實作前先讀 [ADR 0002](../../../docs/adr/0002-migration-tool-and-execution.md)，並刪除 `make migrate-down`。I-00.04 只在本機 `127.0.0.1` 暫時允許 down；這裡新舊版本會同時在跑，down 也無法把已刪的資金資料還原。
 - **完成條件**：模擬測試：在持續寫入的狀態下完成一次欄位改名，期間沒有錯誤。
 - **常見陷阱**：同一次部署同時改 schema 與程式。
 - **設計模式**：Expand / contract
