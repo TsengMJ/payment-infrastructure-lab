@@ -7,7 +7,7 @@ test:
 	go test ./...
 
 lint:
-	@echo "lint: not configured yet (I-00.02)" >&2; exit 1
+	go tool go-arch-lint check
 
 up:
 	@echo "up: not configured yet (I-00.03)" >&2; exit 1
