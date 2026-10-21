@@ -5,11 +5,14 @@
 package log
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"reflect"
 	"strings"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 const redacted = "***"
@@ -28,17 +31,44 @@ var secretKeys = map[string]struct{}{
 }
 
 // New returns a JSON logger. Every record includes service, request_id and
-// trace_id. The last two are empty until a later iteration fills them in.
+// trace_id. request_id stays empty until a later iteration fills it in.
+// trace_id is copied from the span on the record's context when that span is valid.
 func New(w io.Writer, service string, level slog.Level) *slog.Logger {
-	handler := slog.NewJSONHandler(w, &slog.HandlerOptions{
+	inner := slog.NewJSONHandler(w, &slog.HandlerOptions{
 		Level:       level,
 		ReplaceAttr: redactAttr,
 	})
-	return slog.New(handler).With(
+	return slog.New(traceHandler{next: inner}).With(
 		slog.String("service", service),
 		slog.String("request_id", ""),
-		slog.String("trace_id", ""),
 	)
+}
+
+// traceHandler adds trace_id from the active span. The value is the same
+// 32-character hex string Tempo shows. A record with no span gets an empty id.
+type traceHandler struct {
+	next slog.Handler
+}
+
+func (h traceHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.next.Enabled(ctx, level)
+}
+
+func (h traceHandler) Handle(ctx context.Context, record slog.Record) error {
+	id := ""
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		id = sc.TraceID().String()
+	}
+	record.AddAttrs(slog.String("trace_id", id))
+	return h.next.Handle(ctx, record)
+}
+
+func (h traceHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return traceHandler{next: h.next.WithAttrs(attrs)}
+}
+
+func (h traceHandler) WithGroup(name string) slog.Handler {
+	return traceHandler{next: h.next.WithGroup(name)}
 }
 
 // ParseLevel accepts the LOG_LEVEL values config.Load allows.

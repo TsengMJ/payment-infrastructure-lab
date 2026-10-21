@@ -2,10 +2,13 @@ package log
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
+
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestRecordHasRequiredFields(t *testing.T) {
@@ -89,6 +92,22 @@ func TestErrorMessageStaysWhenCardIsRedacted(t *testing.T) {
 	}
 	if record["card_number"] != "***" || strings.Contains(buf.String(), "4111111111111111") {
 		t.Fatalf("card number leaked: %s", buf.String())
+	}
+}
+
+func TestTraceIDMatchesSpan(t *testing.T) {
+	logger, buf := testLogger(t, "payment-api")
+	tp := sdktrace.NewTracerProvider()
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+	ctx, span := tp.Tracer("test").Start(context.Background(), "healthz")
+	defer span.End()
+
+	logger.InfoContext(ctx, "healthz")
+
+	record := decode(t, buf)
+	want := span.SpanContext().TraceID().String()
+	if record["trace_id"] != want {
+		t.Fatalf("trace_id = %#v, want %s", record["trace_id"], want)
 	}
 }
 

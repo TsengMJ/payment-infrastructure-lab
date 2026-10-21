@@ -84,7 +84,7 @@
 
 - **目標**：用 `log/slog` 輸出 JSON 日誌，並能遮罩指定欄位。
 - **為什麼**：付款系統的日誌常被拿去查交易，也常意外寫進卡號、email、token。
-- **不做**：集中收集日誌（Loki 等）。
+- **不做**：集中收集日誌（Loki 等）。之後若要做，見選做的 I-00.09a，不計入這 10 次。
 - **先想清楚**：
   1. 每行日誌必備哪些欄位（時間、層級、服務、request_id、trace_id）？
   2. 遮罩是在寫入時做，還是靠呼叫端自律？哪一個比較可靠？
@@ -128,7 +128,7 @@
 
 - **目標**：一個 HTTP 請求在 Grafana 裡能看到 trace，`/metrics` 能被 Prometheus 抓到。
 - **為什麼**：P03 的故障注入、P17 的跨服務呼叫都要靠 trace 才能看懂；越晚接越難補。
-- **不做**：告警規則（P16）、業務指標。
+- **不做**：告警規則（P16）、業務指標、把日誌送進 Loki（選做見 I-00.09a）。
 - **先想清楚**：
   1. trace_id 怎麼寫進日誌，讓日誌與 trace 能互相跳轉？
   2. 資料庫查詢要不要建 span？會不會把 SQL 參數（可能含個資）寫進 span？
@@ -137,6 +137,14 @@
 - **常見陷阱**：把高基數值（payment_id、merchant_id）當成 metric label。
 - **Survey**：OpenTelemetry Go、OTel collector、Prometheus cardinality、Grafana Tempo
 - **產出**：`internal/platform/otel`、compose 的 observability profile
+
+### I-00.09a 選做：把 JSON 日誌送進 Grafana Loki
+
+- **狀態**：選做。現在不做。不計入 P00 的 10 次迭代，也不擋 `p00-foundation-done`。
+- **為什麼先不做**：I-00.06 明確排除集中收集。I-00.09 要證明的是標準輸出裡的 `trace_id` 能對上 Grafana 的 trace，日誌本身留在標準輸出。
+- **之後再做的前提**：JSON 日誌與遮罩已經穩定。收集器把標準輸出送進 Loki，`trace_id` 做成可查欄位，Grafana 能從同一條 trace 跳到日誌。
+- **現在做的代價**：在 P11、P16 的敏感資料掃描守住日誌之前，先開一個長期日誌副本。
+- **完成條件（將來做的時候）**：`make up-observability` 後，`/healthz` 的那一行日誌在 Grafana 裡查得到，而且 `trace_id` 與 Tempo 的 trace 相同。
 
 ### I-00.10 CI 與安全掃描（含階段檢核）
 
