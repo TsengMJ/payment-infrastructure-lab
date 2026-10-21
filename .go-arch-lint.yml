@@ -28,8 +28,10 @@ components:
   cmdAPI:     { in: cmd/api/** }
   cmdWorker:  { in: cmd/worker/** }
 
-# platform has no entry: it may not import any project component.
+# platform has no entry for business modules: it may not import them.
+# It may import its own subpackages (clock, log, testutil).
 deps:
+  platform:   { mayDependOn: [platform] }
   merchant:   { mayDependOn: [platform] }
   payment:    { mayDependOn: [platform] }
   connector:  { mayDependOn: [platform] }
