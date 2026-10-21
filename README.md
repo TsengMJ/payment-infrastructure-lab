@@ -51,3 +51,11 @@ make migrate-up
 
 `make migrate-diff` 和 `make migrate-down` 會用 Docker 起一個拋棄式的 Postgres 18 來計算 plan，所以需要 Docker socket。應用程式啟動時不跑 migration。
 
+## 應用程式設定
+
+`.env` 不會被 commit。`DATABASE_URL` 沒有預設值，缺了就無法啟動，錯誤會指出變數名稱。範例裡的密碼 `local-dev-only` 只給本機 compose 用。
+
+```sh
+cp .env.example .env
+```
+
