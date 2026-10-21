@@ -1,5 +1,8 @@
 .PHONY: build test lint up down
 
+COMPOSE_ENV := deploy/compose/.env
+COMPOSE := docker compose -f deploy/compose/docker-compose.yml --env-file $(COMPOSE_ENV)
+
 build:
 	go build ./...
 
@@ -9,8 +12,11 @@ test:
 lint:
 	go tool go-arch-lint check
 
-up:
-	@echo "up: not configured yet (I-00.03)" >&2; exit 1
+up: $(COMPOSE_ENV)
+	$(COMPOSE) up -d --wait
 
-down:
-	@echo "down: not configured yet (I-00.03)" >&2; exit 1
+down: $(COMPOSE_ENV)
+	$(COMPOSE) down
+
+$(COMPOSE_ENV):
+	@echo "missing $(COMPOSE_ENV); run: cp deploy/compose/env.example $(COMPOSE_ENV)" >&2; exit 1
