@@ -7,16 +7,23 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/payment"
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/auth"
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/otel"
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/scope"
 )
 
 type pinger interface {
 	Ping(ctx context.Context) error
 }
 
-func newHandler(ready pinger, logger *slog.Logger, authenticator auth.Authenticator) http.Handler {
+type resourceReader interface {
+	Get(ctx context.Context, sc scope.Scope, id uuid.UUID) (payment.Resource, error)
+}
+
+func newHandler(ready pinger, logger *slog.Logger, authenticator auth.Authenticator, managementToken string, keys keyAdmin, resources resourceReader) http.Handler {
 	r := chi.NewRouter()
 	r.Use(otel.HTTPMiddleware("payment-api"))
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -39,8 +46,15 @@ func newHandler(ready pinger, logger *slog.Logger, authenticator auth.Authentica
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	r.Route("/internal", func(r chi.Router) {
+		r.Use(requireManagement(managementToken))
+		r.Post("/merchants/{merchant_id}/api-keys", createAPIKey(keys))
+		r.Post("/merchants/{merchant_id}/live-access", setLiveAccess(keys))
+		r.Post("/api-keys/{key_id}/revoke", revokeAPIKey(keys))
+	})
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(auth.RequireBearer(authenticator))
+		r.Get("/resources/{id}", getResource(resources))
 	})
 	return r
 }

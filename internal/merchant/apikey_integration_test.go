@@ -30,7 +30,7 @@ func TestCreateAPIKeyStoresHashOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, _, err := svc.CreateAPIKey(ctx, merchant.ID, "backup", ModeTest)
+	second, secondToken, err := svc.CreateAPIKey(ctx, merchant.ID, "backup", ModeTest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,12 +66,15 @@ FROM merchant.api_keys WHERE key_id = $1`, first.KeyID).Scan(&keyID, &mode, &las
 		t.Fatal("hash or last4 does not match the secret")
 	}
 
-	got, err := svc.AuthenticateAPIKey(ctx, token, ModeTest)
+	got, err := svc.AuthenticateAPIKey(ctx, token)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.MerchantID != merchant.ID.UUID() || got.KeyID != first.KeyID || got.Status != StatusActive || got.Mode != ModeTest {
 		t.Fatalf("principal = %#v", got)
+	}
+	if _, err := svc.AuthenticateAPIKey(ctx, secondToken); err != nil {
+		t.Fatalf("second key: %v", err)
 	}
 }
 
@@ -95,29 +98,44 @@ func TestAuthenticateAPIKeyRejectsWrongSecretAndMode(t *testing.T) {
 	}
 	secret[0] ^= 0xff
 	tampered := "sk_test_" + key.KeyID + "_" + base64.RawURLEncoding.EncodeToString(secret)
-	if _, err := svc.AuthenticateAPIKey(ctx, tampered, ModeTest); !errors.Is(err, ErrInvalidAPIKey) {
+	if _, err := svc.AuthenticateAPIKey(ctx, tampered); !errors.Is(err, ErrInvalidAPIKey) {
 		t.Fatalf("tampered err = %v", err)
 	}
-	if _, err := svc.AuthenticateAPIKey(ctx, "not-a-key", ModeTest); !errors.Is(err, ErrInvalidAPIKey) {
+	if _, err := svc.AuthenticateAPIKey(ctx, "not-a-key"); !errors.Is(err, ErrInvalidAPIKey) {
 		t.Fatalf("garbage err = %v", err)
 	}
 
+	if _, err := svc.SetLiveAccess(ctx, merchant.ID, true); err != nil {
+		t.Fatal(err)
+	}
 	_, liveToken, err := svc.CreateAPIKey(ctx, merchant.ID, "live", ModeLive)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AuthenticateAPIKey(ctx, liveToken, ModeTest); !errors.Is(err, ErrInvalidAPIKey) {
-		t.Fatalf("cross mode err = %v", err)
-	}
-	if _, err := svc.AuthenticateAPIKey(ctx, liveToken, ModeLive); err != nil {
+	if _, err := svc.AuthenticateAPIKey(ctx, liveToken); err != nil {
 		t.Fatalf("live auth: %v", err)
 	}
 
-	if _, err := pool.Exec(ctx, `UPDATE merchant.api_keys SET mode = 'live' WHERE key_id = $1`, key.KeyID); err != nil {
+	mismatch, mismatchID, mismatchSecret, err := newToken(ModeTest)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AuthenticateAPIKey(ctx, token, ModeTest); !errors.Is(err, ErrInvalidAPIKey) {
+	sum := sha256.Sum256(mismatchSecret)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO merchant.api_keys (key_id, merchant_id, mode, secret_hash, last4, name, created_at)
+VALUES ($1, $2, 'live', $3, $4, 'mismatch', now())`,
+		mismatchID, merchant.ID.UUID(), sum[:], mismatch[len(mismatch)-4:]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AuthenticateAPIKey(ctx, mismatch); !errors.Is(err, ErrInvalidAPIKey) {
 		t.Fatalf("row mode err = %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE merchant.api_keys SET mode = 'live' WHERE key_id = $1`, key.KeyID); err == nil {
+		t.Fatal("mode update succeeded")
+	}
+	if _, err := svc.AuthenticateAPIKey(ctx, token); err != nil {
+		t.Fatalf("key still authenticates after rejected mode update: %v", err)
 	}
 }
 
@@ -153,6 +171,147 @@ func TestCreateAPIKeyRejectsInactiveAndMissingMerchant(t *testing.T) {
 	}
 }
 
+func TestRevokeAndLiveAccess(t *testing.T) {
+	t.Parallel()
+	svc, pool, clk := newFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	merchant, err := svc.Create(ctx, CreateParams{Name: "Northwind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.CreateAPIKey(ctx, merchant.ID, "live", ModeLive); !errors.Is(err, ErrLiveAccessRequired) {
+		t.Fatalf("live without access err = %v", err)
+	}
+	clk.Advance(time.Second)
+	if _, err := svc.SetLiveAccess(ctx, merchant.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(time.Second)
+	_, liveToken, err := svc.CreateAPIKey(ctx, merchant.ID, "live", ModeLive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(time.Second)
+	if _, err := svc.SetLiveAccess(ctx, merchant.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AuthenticateAPIKey(ctx, liveToken); err != nil {
+		t.Fatalf("existing live key after access removed: %v", err)
+	}
+	if _, _, err := svc.CreateAPIKey(ctx, merchant.ID, "live-2", ModeLive); !errors.Is(err, ErrLiveAccessRequired) {
+		t.Fatalf("new live key err = %v", err)
+	}
+
+	clk.Advance(time.Second)
+	first, firstToken, err := svc.CreateAPIKey(ctx, merchant.ID, "primary", ModeTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(time.Second)
+	_, secondToken, err := svc.CreateAPIKey(ctx, merchant.ID, "backup", ModeTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AuthenticateAPIKey(ctx, firstToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AuthenticateAPIKey(ctx, secondToken); err != nil {
+		t.Fatal(err)
+	}
+
+	clk.Advance(time.Minute)
+	revoked, err := svc.RevokeAPIKey(ctx, first.KeyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !revoked.RevokedAt.Equal(clk.Now()) || revoked.Mode != ModeTest {
+		t.Fatalf("revoked = %+v", revoked)
+	}
+	revokedErr := authenticateErr(t, svc, ctx, firstToken)
+	unknownErr := authenticateErr(t, svc, ctx, "not-a-key")
+	if !errors.Is(revokedErr, ErrInvalidAPIKey) || !errors.Is(unknownErr, ErrInvalidAPIKey) {
+		t.Fatalf("revoked %v unknown %v", revokedErr, unknownErr)
+	}
+	if strings.Contains(revokedErr.Error(), "revoked") || strings.Contains(revokedErr.Error(), firstToken) {
+		t.Fatalf("error text %q", revokedErr)
+	}
+	if _, err := svc.AuthenticateAPIKey(ctx, secondToken); err != nil {
+		t.Fatalf("backup key: %v", err)
+	}
+	clk.Advance(time.Minute)
+	again, err := svc.RevokeAPIKey(ctx, first.KeyID)
+	if err != nil || !again.RevokedAt.Equal(revoked.RevokedAt) {
+		t.Fatalf("second revoke = %+v %v", again, err)
+	}
+	if _, err := svc.RevokeAPIKey(ctx, liveToken); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("full token revoke err = %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `UPDATE merchant.api_keys SET revoked_at = NULL WHERE key_id = $1`, first.KeyID); err == nil {
+		t.Fatal("clearing revoked_at succeeded")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM merchant.admin_events WHERE merchant_id = $1`, merchant.ID.UUID()); err == nil {
+		t.Fatal("deleting audit events succeeded")
+	}
+
+	var actions []string
+	rows, err := pool.Query(ctx, `
+SELECT action, coalesce(key_id, ''), coalesce(mode, ''), coalesce(live_access::text, ''), actor
+FROM merchant.admin_events
+WHERE merchant_id = $1
+ORDER BY created_at, action`, merchant.ID.UUID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var blob strings.Builder
+	for rows.Next() {
+		var action, keyID, mode, live, actor string
+		if err := rows.Scan(&action, &keyID, &mode, &live, &actor); err != nil {
+			t.Fatal(err)
+		}
+		actions = append(actions, action)
+		blob.WriteString(action + keyID + mode + live + actor)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		EventLiveAccessSet,
+		EventAPIKeyCreated,
+		EventLiveAccessSet,
+		EventAPIKeyCreated,
+		EventAPIKeyCreated,
+		EventAPIKeyRevoked,
+	}
+	if strings.Join(actions, ",") != strings.Join(want, ",") {
+		t.Fatalf("actions = %v", actions)
+	}
+	if strings.Contains(blob.String(), liveToken) || strings.Contains(blob.String(), firstToken) || strings.Contains(blob.String(), secondToken) {
+		t.Fatal("audit row contains a secret")
+	}
+	var revokedEvents int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM merchant.admin_events
+WHERE key_id = $1 AND action = $2`, first.KeyID, EventAPIKeyRevoked).Scan(&revokedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if revokedEvents != 1 {
+		t.Fatalf("revoke events = %d", revokedEvents)
+	}
+}
+
+func authenticateErr(t *testing.T, svc *Service, ctx context.Context, token string) error {
+	t.Helper()
+	_, err := svc.AuthenticateAPIKey(ctx, token)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	return err
+}
+
 func TestAPIKeyForeignKeyAndStoreOutage(t *testing.T) {
 	t.Parallel()
 	svc, pool, _ := newFixture(t)
@@ -183,7 +342,7 @@ VALUES ($1, $2, 'test', $3, 'abcd', 'orphan', now())`,
 	expired, cancelExpired := context.WithTimeout(context.Background(), time.Nanosecond)
 	defer cancelExpired()
 	time.Sleep(time.Millisecond)
-	_, err = svc.AuthenticateAPIKey(expired, token, ModeTest)
+	_, err = svc.AuthenticateAPIKey(expired, token)
 	if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalidAPIKey) {
 		t.Fatalf("store outage err = %v", err)
 	}

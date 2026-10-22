@@ -132,6 +132,44 @@ func TestMiddlewareDoesNotLogTheToken(t *testing.T) {
 	}
 }
 
+func TestInFlightRequestIsNotCancelledWhenLaterAuthFails(t *testing.T) {
+	merchantID := uuid.MustParse("018f1a2b-3c4d-7e5f-8a9b-0c1d2e3f4a5b")
+	token := "sk_test_" + strings.Repeat("a", 22) + "_" + strings.Repeat("b", 43)
+	authn := &fakeAuth{identity: Identity{MerchantID: merchantID, Status: "active", Mode: "test", KeyID: "key-id"}}
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	handler := require(authn, func(w http.ResponseWriter, r *http.Request) {
+		mode, ok := Mode(r.Context())
+		keyID, keyOK := KeyID(r.Context())
+		if !ok || mode != "test" || !keyOK || keyID != "key-id" {
+			t.Errorf("mode %q ok=%v key %q ok=%v", mode, ok, keyID, keyOK)
+		}
+		close(entered)
+		<-release
+		if r.Context().Err() != nil {
+			t.Errorf("context err = %v", r.Context().Err())
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	done := make(chan int, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, bearerRequest(token))
+		done <- rec.Code
+	}()
+	<-entered
+	authn.err = ErrUnauthenticated
+	close(release)
+	if code := <-done; code != http.StatusNoContent {
+		t.Fatalf("in-flight status %d", code)
+	}
+	status, body, www := call(t, authn, bearerRequest(token))
+	assertCode(t, status, body, www, http.StatusUnauthorized, "invalid_api_key")
+	if strings.Contains(string(body), "revoked") {
+		t.Fatalf("body %s", body)
+	}
+}
+
 func TestCheckMerchantStatus(t *testing.T) {
 	if err := CheckMerchantStatus("active"); err != nil {
 		t.Fatal(err)

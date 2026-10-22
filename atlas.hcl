@@ -12,6 +12,15 @@ env "merchant" {
   dev     = "docker://postgres/18/dev"
   src     = "file://schema/merchant.hcl"
   schemas = ["merchant"]
+  # Functions and triggers are written in the api_key_rotation migration.
+  # Community Atlas cannot load them from HCL. Excluding them keeps a later
+  # diff from planning a drop.
+  exclude = [
+    "merchant.reject_api_key_update",
+    "merchant.reject_admin_event_change",
+    "merchant.api_keys.api_keys_revoke_only",
+    "merchant.admin_events.admin_events_append_only",
+  ]
   migration {
     dir              = "file://migrations/merchant"
     revisions_schema = "atlas_merchant"

@@ -38,6 +38,13 @@ type Authenticator interface {
 
 type merchantIDKey struct{}
 
+type accessKey struct{}
+
+type access struct {
+	mode  string
+	keyID string
+}
+
 // MerchantID returns the authenticated merchant's primary key.
 // The value is a UUID, not the mer_ external form.
 func MerchantID(ctx context.Context) (uuid.UUID, bool) {
@@ -46,6 +53,25 @@ func MerchantID(ctx context.Context) (uuid.UUID, bool) {
 		return uuid.Nil, false
 	}
 	return id, true
+}
+
+// Mode returns the mode of the API key that authenticated this request.
+// It is empty when the request has not passed RequireBearer.
+func Mode(ctx context.Context) (string, bool) {
+	got, ok := ctx.Value(accessKey{}).(access)
+	if !ok || got.mode == "" {
+		return "", false
+	}
+	return got.mode, true
+}
+
+// KeyID returns the key id of the API key that authenticated this request.
+func KeyID(ctx context.Context) (string, bool) {
+	got, ok := ctx.Value(accessKey{}).(access)
+	if !ok || got.keyID == "" {
+		return "", false
+	}
+	return got.keyID, true
 }
 
 // CheckMerchantStatus allows only an active merchant.

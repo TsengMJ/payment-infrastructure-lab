@@ -40,6 +40,20 @@ var (
 	ErrInvalidKeyName = errors.New("invalid api key name")
 	// ErrInvalidMode is returned when an API key mode is not test or live.
 	ErrInvalidMode = errors.New("invalid api key mode")
+	// ErrLiveAccessRequired is returned when a live key is requested for a merchant
+	// that has not been granted live access.
+	ErrLiveAccessRequired = errors.New("live access required")
+)
+
+const (
+	// EventAPIKeyCreated is the audit action for a new API key.
+	EventAPIKeyCreated = "api_key.created"
+	// EventAPIKeyRevoked is the audit action for a revoked API key.
+	EventAPIKeyRevoked = "api_key.revoked"
+	// EventLiveAccessSet is the audit action for a live-access change.
+	EventLiveAccessSet = "merchant.live_access_set"
+	// AuditActorManagement is the actor recorded for management-token operations.
+	AuditActorManagement = "management"
 )
 
 const (
@@ -69,6 +83,7 @@ type Merchant struct {
 	Status       Status
 	ContactEmail string
 	Metadata     json.RawMessage
+	LiveAccess   bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -81,6 +96,14 @@ type APIKey struct {
 	Last4      string
 	Name       string
 	CreatedAt  time.Time
+}
+
+// RevokedAPIKey is a key that has been revoked. The secret is not included.
+type RevokedAPIKey struct {
+	KeyID      string
+	MerchantID ID
+	Mode       string
+	RevokedAt  time.Time
 }
 
 // APIKeyPrincipal is a key that authenticated, plus the merchant's current status.

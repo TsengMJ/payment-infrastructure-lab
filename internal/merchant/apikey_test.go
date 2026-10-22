@@ -55,6 +55,7 @@ func TestParseTokenRejectsMalformed(t *testing.T) {
 		"pk_test_" + good[8:],
 		good[:30] + "-" + good[31:],
 		strings.Replace(good, "sk_test_", "sk_test-", 1),
+		strings.Repeat("m", 32),
 	}
 	for _, token := range bad {
 		if _, _, _, err := parseToken(token); !errors.Is(err, ErrInvalidAPIKey) {

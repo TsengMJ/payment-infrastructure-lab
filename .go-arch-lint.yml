@@ -35,7 +35,8 @@ deps:
   # merchant may import its own internal store, the same way platform
   # imports clock and testutil.
   merchant:   { mayDependOn: [platform, merchant] }
-  payment:    { mayDependOn: [platform] }
+  # payment may import its own internal store, the same way merchant does.
+  payment:    { mayDependOn: [platform, payment] }
   connector:  { mayDependOn: [platform] }
   refund:     { mayDependOn: [platform] }
   ledger:     { mayDependOn: [platform] }

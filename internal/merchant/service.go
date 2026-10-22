@@ -187,6 +187,7 @@ func toMerchant(row postgres.Row) Merchant {
 		Status:       Status(row.Status),
 		ContactEmail: email,
 		Metadata:     meta,
+		LiveAccess:   row.LiveAccess,
 		CreatedAt:    row.CreatedAt,
 		UpdatedAt:    row.UpdatedAt,
 	}

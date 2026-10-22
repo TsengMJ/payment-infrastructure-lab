@@ -16,35 +16,35 @@ type fakePinger struct {
 func (f fakePinger) Ping(context.Context) error { return f.err }
 
 func TestHealthzIgnoresDatabase(t *testing.T) {
-	status := get(t, newHandler(fakePinger{err: errors.New("down")}, discardLog(), nil), "/healthz")
+	status := get(t, newHandler(fakePinger{err: errors.New("down")}, discardLog(), nil, "", nil, nil), "/healthz")
 	if status != http.StatusOK {
 		t.Fatalf("status %d, want 200", status)
 	}
 }
 
 func TestReadyzFailsWhenDatabasePingFails(t *testing.T) {
-	status := get(t, newHandler(fakePinger{err: errors.New("down")}, discardLog(), nil), "/readyz")
+	status := get(t, newHandler(fakePinger{err: errors.New("down")}, discardLog(), nil, "", nil, nil), "/readyz")
 	if status != http.StatusServiceUnavailable {
 		t.Fatalf("status %d, want 503", status)
 	}
 }
 
 func TestReadyzOkWhenDatabasePingSucceeds(t *testing.T) {
-	status := get(t, newHandler(fakePinger{}, discardLog(), nil), "/readyz")
+	status := get(t, newHandler(fakePinger{}, discardLog(), nil, "", nil, nil), "/readyz")
 	if status != http.StatusOK {
 		t.Fatalf("status %d, want 200", status)
 	}
 }
 
 func TestMetricsIsNotOnThePublicPort(t *testing.T) {
-	status := get(t, newHandler(fakePinger{}, discardLog(), nil), "/metrics")
+	status := get(t, newHandler(fakePinger{}, discardLog(), nil, "", nil, nil), "/metrics")
 	if status != http.StatusNotFound {
 		t.Fatalf("status %d, want 404", status)
 	}
 }
 
 func TestSlowRouteIsNotPublic(t *testing.T) {
-	status := get(t, newHandler(fakePinger{}, discardLog(), nil), "/slow")
+	status := get(t, newHandler(fakePinger{}, discardLog(), nil, "", nil, nil), "/slow")
 	if status != http.StatusNotFound {
 		t.Fatalf("status %d, want 404", status)
 	}
