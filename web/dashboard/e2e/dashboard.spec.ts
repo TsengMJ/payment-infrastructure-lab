@@ -14,17 +14,26 @@ async function login(page: Page, email: string, path = "/login") {
 }
 
 test("密碼錯誤會鎖定", async ({ page }) => {
+  test.setTimeout(60_000);
   await page.goto("/login");
+  const submit = page.getByRole("button", { name: "登入" });
   for (let attempt = 0; attempt < 5; attempt += 1) {
+    await expect(submit).toBeEnabled();
     await page.getByLabel("電子郵件").fill("lock@demo.test");
     await page.getByLabel("密碼").fill("wrong-password");
-    await page.getByRole("button", { name: "登入" }).click();
+    const submitted = page.waitForResponse((response) => response.request().method() === "POST");
+    await submit.click();
+    await submitted;
+    await expect(submit).toBeEnabled();
     await expect(page.locator("p[role=alert]")).toHaveText(attempt === 4 ? "帳號已鎖定" : "密碼不正確");
   }
-  await expect(page.locator("p[role=alert]")).toHaveText("帳號已鎖定");
+  await page.getByLabel("電子郵件").fill("lock@demo.test");
   await page.getByLabel("密碼").fill("local-demo-only");
-  await page.getByRole("button", { name: "登入" }).click();
+  const submitted = page.waitForResponse((response) => response.request().method() === "POST");
+  await submit.click();
+  await submitted;
   await expect(page.locator("p[role=alert]")).toHaveText("帳號已鎖定");
+  await expect(page).toHaveURL(/\/login$/);
 });
 
 test("登出後不能再看付款", async ({ page }) => {
