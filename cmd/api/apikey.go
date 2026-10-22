@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/merchant"
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/apierror"
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/tenant"
 )
 
@@ -38,7 +40,7 @@ func listAPIKeys(keys apiKeyReader) http.HandlerFunc {
 		}
 		rows, err := keys.ListAPIKeys(r.Context(), sc)
 		if err != nil {
-			writeCode(w, http.StatusInternalServerError, "internal_error")
+			apierror.Write(w, r, apierror.Internal, "")
 			return
 		}
 		out := apiKeyListResponse{Data: make([]apiKeyResponse, 0, len(rows))}
@@ -55,13 +57,18 @@ func getAPIKey(keys apiKeyReader) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		got, err := keys.GetAPIKey(r.Context(), sc, chi.URLParam(r, "key_id"))
+		keyID := chi.URLParam(r, "key_id")
+		if !apiKeyID.MatchString(keyID) {
+			apierror.Write(w, r, apierror.ParameterInvalid, "key_id")
+			return
+		}
+		got, err := keys.GetAPIKey(r.Context(), sc, keyID)
 		if errors.Is(err, merchant.ErrNotFound) {
-			writeCode(w, http.StatusNotFound, "not_found")
+			apierror.Write(w, r, apierror.ResourceMissing, "")
 			return
 		}
 		if err != nil {
-			writeCode(w, http.StatusInternalServerError, "internal_error")
+			apierror.Write(w, r, apierror.Internal, "")
 			return
 		}
 		writeJSON(w, http.StatusOK, toAPIKeyResponse(got))
@@ -70,16 +77,18 @@ func getAPIKey(keys apiKeyReader) http.HandlerFunc {
 
 func scopeOrError(w http.ResponseWriter, keys apiKeyReader, r *http.Request) (tenant.Scope, bool) {
 	if keys == nil {
-		writeCode(w, http.StatusInternalServerError, "internal_error")
+		apierror.Write(w, r, apierror.Internal, "")
 		return tenant.Scope{}, false
 	}
 	sc, ok := tenant.FromContext(r.Context())
 	if !ok {
-		writeCode(w, http.StatusInternalServerError, "internal_error")
+		apierror.Write(w, r, apierror.Internal, "")
 		return tenant.Scope{}, false
 	}
 	return sc, true
 }
+
+var apiKeyID = regexp.MustCompile(`^[A-Za-z0-9_-]{22}$`)
 
 func toAPIKeyResponse(row merchant.APIKey) apiKeyResponse {
 	return apiKeyResponse{
@@ -91,16 +100,10 @@ func toAPIKeyResponse(row merchant.APIKey) apiKeyResponse {
 	}
 }
 
-func writeCode(w http.ResponseWriter, status int, code string) {
-	writeJSON(w, status, struct {
-		Code string `json:"code"`
-	}{Code: code})
-}
-
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	body, err := json.Marshal(v)
 	if err != nil {
-		http.Error(w, `{"code":"internal_error"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":{"type":"api_error","code":"internal_error","message":"An internal error occurred.","request_id":"","retryable":true}}`, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

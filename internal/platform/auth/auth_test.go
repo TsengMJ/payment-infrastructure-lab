@@ -107,7 +107,7 @@ func TestBearerMiddleware(t *testing.T) {
 	t.Run("store down", func(t *testing.T) {
 		authn := &fakeAuth{err: errors.Join(ErrUnavailable, errors.New("dial tcp secret=sk_test_should_not_leak"))}
 		status, body, _ := call(t, authn, bearerRequest(token))
-		assertCode(t, status, body, "", http.StatusServiceUnavailable, "internal_error")
+		assertCode(t, status, body, "", http.StatusServiceUnavailable, "service_unavailable")
 		if strings.Contains(string(body), "sk_test_") || strings.Contains(string(body), "dial") {
 			t.Fatalf("body leaked internals: %s", body)
 		}
@@ -207,12 +207,24 @@ func assertCode(t *testing.T, status int, body []byte, www string, wantStatus in
 	if status != wantStatus {
 		t.Fatalf("status %d, want %d, body %s", status, wantStatus, body)
 	}
-	var got errorBody
+	var got struct {
+		Error struct {
+			Type      string `json:"type"`
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+			Retryable bool   `json:"retryable"`
+		} `json:"error"`
+	}
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Code != wantCode {
-		t.Fatalf("code %q, want %q", got.Code, wantCode)
+	if got.Error.Code != wantCode || got.Error.Type == "" || got.Error.Message == "" {
+		t.Fatalf("error = %#v, want code %s", got.Error, wantCode)
+	}
+	wantRetry := wantStatus == http.StatusInternalServerError || wantStatus == http.StatusServiceUnavailable
+	if got.Error.Retryable != wantRetry {
+		t.Fatalf("retryable = %v, want %v", got.Error.Retryable, wantRetry)
 	}
 	if wantStatus == http.StatusUnauthorized && www != "Bearer" {
 		t.Fatalf("WWW-Authenticate = %q", www)
