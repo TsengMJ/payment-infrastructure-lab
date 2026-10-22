@@ -66,7 +66,7 @@ func main() {
 	pingCancel()
 
 	keys := merchant.NewService(pool, clock.System{})
-	public := newHandler(pool, logger, newMerchantAuthenticator(keys, cfg.PaymentMode))
+	public := newHandler(pool, logger, newMerchantAuthenticator(keys, cfg.PaymentMode), keys)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

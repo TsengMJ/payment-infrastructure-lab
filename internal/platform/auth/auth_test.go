@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/log"
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/tenant"
 )
 
 func TestBearerMiddleware(t *testing.T) {
@@ -72,7 +73,7 @@ func TestBearerMiddleware(t *testing.T) {
 	})
 
 	t.Run("case insensitive scheme", func(t *testing.T) {
-		authn := &fakeAuth{identity: Identity{MerchantID: merchantID, Status: "active"}}
+		authn := &fakeAuth{identity: Identity{MerchantID: merchantID, Status: "active", Mode: tenant.ModeTest}}
 		req := httptest.NewRequest(http.MethodGet, "/v1/orders", nil)
 		req.Header.Set("Authorization", "bEaReR "+token)
 		rec := httptest.NewRecorder()
@@ -80,6 +81,10 @@ func TestBearerMiddleware(t *testing.T) {
 			id, ok := MerchantID(r.Context())
 			if !ok || id != merchantID || strings.Contains(id.String(), "mer_") {
 				t.Fatalf("merchant id = %s ok=%v", id, ok)
+			}
+			sc, scOK := tenant.FromContext(r.Context())
+			if !scOK || sc.MerchantID() != merchantID || sc.Mode() != tenant.ModeTest {
+				t.Fatalf("scope ok=%v merchant %s mode %s", scOK, sc.MerchantID(), sc.Mode())
 			}
 			w.WriteHeader(http.StatusNoContent)
 		}).ServeHTTP(rec, req)
@@ -106,6 +111,19 @@ func TestBearerMiddleware(t *testing.T) {
 		if strings.Contains(string(body), "sk_test_") || strings.Contains(string(body), "dial") {
 			t.Fatalf("body leaked internals: %s", body)
 		}
+	})
+
+	t.Run("identity without mode", func(t *testing.T) {
+		authn := &fakeAuth{identity: Identity{MerchantID: merchantID, Status: "active"}}
+		called := false
+		rec := httptest.NewRecorder()
+		require(authn, func(http.ResponseWriter, *http.Request) {
+			called = true
+		}).ServeHTTP(rec, bearerRequest(token))
+		if called {
+			t.Fatal("handler ran without a scope")
+		}
+		assertCode(t, rec.Code, rec.Body.Bytes(), rec.Header().Get("WWW-Authenticate"), http.StatusInternalServerError, "internal_error")
 	})
 
 	t.Run("unexpected store error", func(t *testing.T) {
@@ -155,7 +173,7 @@ func (f *fakeAuth) Authenticate(_ context.Context, token string) (Identity, erro
 }
 
 func allow(id uuid.UUID) *fakeAuth {
-	return &fakeAuth{identity: Identity{MerchantID: id, Status: "active"}}
+	return &fakeAuth{identity: Identity{MerchantID: id, Status: "active", Mode: tenant.ModeTest}}
 }
 
 func require(authn Authenticator, next http.HandlerFunc) http.Handler {

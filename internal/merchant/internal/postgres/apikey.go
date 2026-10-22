@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/tenant"
 )
 
 // NewAPIKey is a row to insert. SecretHash is the SHA-256 of the raw secret.
@@ -92,6 +94,67 @@ WHERE k.key_id = $1`
 	}
 	if !merchantID.Valid {
 		return APIKeyAuth{}, fmt.Errorf("merchant id is null")
+	}
+	out.MerchantID = uuid.UUID(merchantID.Bytes)
+	return out, nil
+}
+
+// GetOwnedAPIKey loads one key for this merchant and mode.
+// Another merchant, the other mode, and an unknown id are all pgx.ErrNoRows.
+// An invalid scope fails before the query.
+func (s *Store) GetOwnedAPIKey(ctx context.Context, sc tenant.Scope, keyID string) (APIKeyRow, error) {
+	if !sc.Valid() {
+		return APIKeyRow{}, fmt.Errorf("api key: %w", tenant.ErrInvalid)
+	}
+	const q = `
+SELECT key_id, merchant_id, mode, last4, name, created_at
+FROM merchant.api_keys
+WHERE key_id = $1 AND merchant_id = $2 AND mode = $3`
+	return scanAPIKey(s.pool.QueryRow(ctx, q, keyID, pgUUID(sc.MerchantID()), sc.Mode()))
+}
+
+// ListOwnedAPIKeys returns at most 100 keys for this merchant and mode,
+// ordered by created_at then key_id. An invalid scope fails before the query.
+func (s *Store) ListOwnedAPIKeys(ctx context.Context, sc tenant.Scope) ([]APIKeyRow, error) {
+	if !sc.Valid() {
+		return nil, fmt.Errorf("api key: %w", tenant.ErrInvalid)
+	}
+	const q = `
+SELECT key_id, merchant_id, mode, last4, name, created_at
+FROM merchant.api_keys
+WHERE merchant_id = $1 AND mode = $2
+ORDER BY created_at, key_id
+LIMIT 100`
+	rows, err := s.pool.Query(ctx, q, pgUUID(sc.MerchantID()), sc.Mode())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []APIKeyRow{}
+	for rows.Next() {
+		row, err := scanAPIKey(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func scanAPIKey(row interface{ Scan(dest ...any) error }) (APIKeyRow, error) {
+	var (
+		out        APIKeyRow
+		merchantID pgtype.UUID
+	)
+	err := row.Scan(&out.KeyID, &merchantID, &out.Mode, &out.Last4, &out.Name, &out.CreatedAt)
+	if err != nil {
+		return APIKeyRow{}, err
+	}
+	if !merchantID.Valid {
+		return APIKeyRow{}, fmt.Errorf("merchant id is null")
 	}
 	out.MerchantID = uuid.UUID(merchantID.Bytes)
 	return out, nil
