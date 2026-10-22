@@ -1,4 +1,4 @@
-.PHONY: build test test-unit test-integration lint vuln gosec secrets up up-observability down migrate-up migrate-down migrate-diff atlas-image
+.PHONY: build test test-unit test-integration lint vuln gosec secrets up up-observability down migrate-up migrate-down migrate-diff atlas-image web-install web-dev web-check
 
 COMPOSE_ENV := deploy/compose/.env
 COMPOSE := docker compose -f deploy/compose/docker-compose.yml --env-file $(COMPOSE_ENV)
@@ -124,3 +124,31 @@ migrate-diff: $(COMPOSE_ENV) bin/.atlas-image
 
 $(COMPOSE_ENV):
 	@echo "missing $(COMPOSE_ENV); run: cp deploy/compose/env.example $(COMPOSE_ENV)" >&2; exit 1
+
+WEB_CHECKOUT := web/checkout
+WEB_DASHBOARD := web/dashboard
+
+web-install:
+	npm ci --prefix $(WEB_CHECKOUT)
+	npm ci --prefix $(WEB_DASHBOARD)
+
+web-dev:
+	npm run dev --prefix $(WEB_CHECKOUT) & pid1=$$!; \
+	npm run dev --prefix $(WEB_DASHBOARD) & pid2=$$!; \
+	trap 'kill $$pid1 $$pid2' INT TERM EXIT; \
+	wait
+
+web-check:
+	npm ci --prefix $(WEB_CHECKOUT)
+	npm ci --prefix $(WEB_DASHBOARD)
+	if [ "$$(uname)" = "Linux" ]; then \
+		npm --prefix $(WEB_CHECKOUT) exec -- playwright install --with-deps chromium; \
+	else \
+		npm --prefix $(WEB_CHECKOUT) exec -- playwright install chromium; \
+	fi
+	npm --prefix $(WEB_CHECKOUT) run typecheck
+	npm --prefix $(WEB_CHECKOUT) run lint
+	npm --prefix $(WEB_CHECKOUT) run test:e2e
+	npm --prefix $(WEB_DASHBOARD) run typecheck
+	npm --prefix $(WEB_DASHBOARD) run lint
+	npm --prefix $(WEB_DASHBOARD) run test:e2e

@@ -19,3 +19,16 @@ jobs:
       - run: make vuln
       - run: make gosec
       - run: make secrets
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache: npm
+          cache-dependency-path: |
+            web/checkout/package-lock.json
+            web/dashboard/package-lock.json
+      - run: make web-check

@@ -7,6 +7,7 @@
 | 工具 | 版本 | 用途 |
 |---|---|---|
 | Go | 1.27.3（`go.mod` 的 `toolchain`；較舊的 Go 1.21+ 會自動下載這一版） | 編譯與測試 |
+| Node.js | 22 以上（`.node-version`；本機較新的 Node 也可以） | `web/checkout`、`web/dashboard` |
 | GNU make | 3.81 以上 | 固定指令入口 |
 | Docker + Docker Compose | Compose v2 以上 | 本機 Postgres（`make up`） |
 | Atlas | 1.3.0（`deploy/atlas/Dockerfile` 以 `arigaio/atlas:1.3.0-alpine` 建本地 image，不需全域安裝） | schema migration |
@@ -31,6 +32,9 @@
 | `make migrate-up` | 套用 `merchant`、`payment` 的 migration。已套用過再跑會成功結束 |
 | `make migrate-down` | 撤銷這兩個目錄裡已套用的 migration。只允許連到 `127.0.0.1`；I-17.03 會刪掉這個指令 |
 | `make migrate-diff MODULE=<module> NAME=<change>` | 依 `schema/<module>.hcl` 產生下一支 migration。`MODULE` 是 `merchant` 或 `payment` |
+| `make web-install` | 安裝兩個前端的依賴 |
+| `make web-dev` | 同時啟動結帳頁（`127.0.0.1:3100`）與後台（`127.0.0.1:3101`）。Grafana 佔用 3000 |
+| `make web-check` | 前端型別檢查、lint、Playwright。不影響 `make test` |
 
 ## 本機資料庫
 

@@ -229,6 +229,10 @@ payment-infrastructure-lab/
 └── Makefile
 ```
 
+### 前端先以 Mock 存在
+
+`web/checkout` 與 `web/dashboard` 的 React 頁面已經先做好，預設讀 Mock 資料。之後對應的迭代改接 `API_MODE=live` 的 client，不重做頁面。金額、付款結果與權限仍以後端為準。
+
 ### 分支、commit、tag
 
 - 一次迭代一個分支：`iter/I-05.03-journal-balance`。

@@ -7,4 +7,10 @@ useDefault = true
 # "api_key" makes the generic-api-key rule treat the checksum as a secret.
 [allowlist]
 description = "Atlas migration checksums are not credentials"
-paths = ['''migrations/.*/atlas\.sum''']
+paths = [
+  '''migrations/.*/atlas\.sum''',
+  '''(^|/)\.next/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)playwright-report/''',
+  '''(^|/)test-results/''',
+]

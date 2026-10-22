@@ -35,6 +35,7 @@
 - **常見陷阱**：自己做輸入欄位再把卡號送到 Stripe。
 - **Survey**：Stripe Payment Element、PCI SAQ A、Content Security Policy
 - **產出**：`web/checkout`
+- **現況**：結帳頁已在 `web/checkout`（Mock）。這次把卡號占位換成 Stripe Payment Element，並改接 live client。
 
 ### I-11.03 回跳與結果頁
 
@@ -48,6 +49,7 @@
 - **常見陷阱**：用 redirect 網址上的參數判斷付款成功。
 - **Survey**：Stripe return_url、payment confirmation polling
 - **產出**：結果頁
+- **現況**：結果頁已在 `web/checkout`。這次改接 live client，不重做頁面。
 
 ### I-11.04 Payment Link
 
@@ -113,6 +115,7 @@
 - **常見陷阱**：以為錢包付款不會被拒或不會被爭議。
 - **Survey**：Apple Pay on the web、Google Pay、Stripe wallets
 - **產出**：錢包支援、測試紀錄
+- **現況**：結帳頁已有電子錢包占位。這次接上 Stripe 的錢包付款。
 
 ### I-11.09 銀行轉帳與虛擬帳號
 

@@ -22,6 +22,7 @@
 - **常見陷阱**：用 API key 當作後台登入憑證。
 - **Survey**：OIDC、session management、Ory Kratos、Keycloak
 - **產出**：使用者模型、ADR 0025「後台身分機制」
+- **現況**：登入頁已在 `web/dashboard`（Mock）。這次改接 live client，不重做頁面。
 
 ### I-15.02 商戶使用者角色
 
@@ -48,6 +49,7 @@
 - **常見陷阱**：時間線只顯示 payment 表的狀態。
 - **Survey**：event timeline、audit trail UI
 - **產出**：timeline API 與頁面
+- **現況**：時間線頁已在 `web/dashboard`（Mock）。這次改接 live client，不重做頁面。
 
 ### I-15.04 商戶結算報表
 
@@ -61,6 +63,7 @@
 - **常見陷阱**：報表直接從 payment 表算，與帳本不一致。
 - **Survey**：Stripe payout reconciliation report、async export
 - **產出**：報表 API
+- **現況**：報表頁已在 `web/dashboard`（Mock）。這次改接 live client，不重做頁面。
 
 ### I-15.05 內部營運後台與身分分離
 
@@ -74,6 +77,7 @@
 - **常見陷阱**：內部與商戶共用同一套權限系統，只靠 `is_admin` 旗標。
 - **Survey**：internal tools access control、break glass access
 - **產出**：內部身分、內部 API
+- **現況**：內部後台入口已在 `web/dashboard`（Mock）。這次改接 live client，不重做頁面。
 
 ### I-15.06 KYB 人工審核頁
 
@@ -87,6 +91,7 @@
 - **常見陷阱**：審核頁把所有個資一次載入。
 - **Survey**：case management UI
 - **產出**：審核頁
+- **現況**：審核頁已在 `web/dashboard`（Mock）。這次改接 live client，不重做頁面。
 
 ### I-15.07 客服工具與需覆核的手動操作
 
@@ -100,6 +105,7 @@
 - **常見陷阱**：客服工具直接呼叫 PSP，繞過 refund 模組的冪等與上限檢查。
 - **Survey**：maker-checker、four-eyes principle
 - **產出**：客服工具
+- **現況**：客服頁已在 `web/dashboard`（Mock）。這次改接 live client，不重做頁面。
 
 ### I-15.08 操作稽核紀錄
 
