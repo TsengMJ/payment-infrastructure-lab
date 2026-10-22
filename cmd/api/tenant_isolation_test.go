@@ -27,7 +27,7 @@ func TestCrossTenantResourcesAreHidden(t *testing.T) {
 	merchantA := uuid.MustParse("018f1a2b-3c4d-7e5f-8a9b-0c1d2e3f4a5b")
 	merchantB := uuid.MustParse("018f1a2b-3c4d-7e5f-8a9b-0c1d2e3f4a5c")
 	owned := merchant.APIKey{
-		KeyID:      "owned-key-id-22-chars-x",
+		KeyID:      strings.Repeat("a", 22),
 		MerchantID: mustMerchantID(t, merchantA),
 		Mode:       tenant.ModeTest,
 		Last4:      "abcd",
@@ -35,10 +35,10 @@ func TestCrossTenantResourcesAreHidden(t *testing.T) {
 		CreatedAt:  time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC),
 	}
 	live := owned
-	live.KeyID = "live-key-id-22-chars-xx"
+	live.KeyID = strings.Repeat("b", 22)
 	live.Mode = tenant.ModeLive
 	other := owned
-	other.KeyID = "other-key-id-22-chars-x"
+	other.KeyID = strings.Repeat("c", 22)
 	other.MerchantID = mustMerchantID(t, merchantB)
 	store := &memKeys{rows: []merchant.APIKey{owned, live, other}}
 	token := bearerFixture()
@@ -59,11 +59,11 @@ func TestCrossTenantResourcesAreHidden(t *testing.T) {
 	for _, resource := range resources {
 		t.Run(resource.name, func(t *testing.T) {
 			status, body := getAuth(t, handler, resource.path(owned)+"?merchant_id="+merchantA.String()+"&mode=live", token)
-			missingStatus, missingBody := getAuth(t, handler, resource.path(merchant.APIKey{KeyID: "missing-key-id"})+"?mode=live", token)
+			missingStatus, missingBody := getAuth(t, handler, resource.path(merchant.APIKey{KeyID: strings.Repeat("d", 22)})+"?mode=live", token)
 			if status != http.StatusNotFound || missingStatus != http.StatusNotFound || body != missingBody {
 				t.Fatalf("cross tenant %d %s; missing %d %s", status, body, missingStatus, missingBody)
 			}
-			if strings.Contains(body, owned.KeyID) || strings.Contains(body, "live") {
+			if !strings.Contains(body, `"code":"resource_missing"`) || !strings.Contains(body, `"retryable":false`) {
 				t.Fatalf("body distinguished the resource: %s", body)
 			}
 			if store.got.MerchantID() != merchantB || store.got.Mode() != tenant.ModeTest {
@@ -83,7 +83,7 @@ func TestCrossTenantResourcesAreHidden(t *testing.T) {
 func TestOtherModeIsNotFound(t *testing.T) {
 	merchantA := uuid.MustParse("018f1a2b-3c4d-7e5f-8a9b-0c1d2e3f4a5b")
 	testKey := merchant.APIKey{
-		KeyID:      "test-key-id-22-chars-xx",
+		KeyID:      strings.Repeat("a", 22),
 		MerchantID: mustMerchantID(t, merchantA),
 		Mode:       tenant.ModeTest,
 		Last4:      "abcd",
@@ -91,7 +91,7 @@ func TestOtherModeIsNotFound(t *testing.T) {
 		CreatedAt:  time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC),
 	}
 	liveKey := testKey
-	liveKey.KeyID = "live-key-id-22-chars-xx"
+	liveKey.KeyID = strings.Repeat("b", 22)
 	liveKey.Mode = tenant.ModeLive
 	store := &memKeys{rows: []merchant.APIKey{testKey, liveKey}}
 	handler := newHandler(fakePinger{}, discardLog(), stubAuth{identity: auth.Identity{
@@ -102,7 +102,7 @@ func TestOtherModeIsNotFound(t *testing.T) {
 	}}, store)
 
 	status, body := getAuth(t, handler, "/v1/api_keys/"+liveKey.KeyID+"?mode=live", bearerFixture())
-	missingStatus, missingBody := getAuth(t, handler, "/v1/api_keys/missing-key-id", bearerFixture())
+	missingStatus, missingBody := getAuth(t, handler, "/v1/api_keys/"+strings.Repeat("d", 22), bearerFixture())
 	if status != http.StatusNotFound || body != missingBody || missingStatus != http.StatusNotFound {
 		t.Fatalf("live key %d %s; missing %d %s", status, body, missingStatus, missingBody)
 	}
@@ -114,9 +114,13 @@ func TestOtherModeIsNotFound(t *testing.T) {
 
 type stubAuth struct {
 	identity auth.Identity
+	err      error
 }
 
 func (s stubAuth) Authenticate(context.Context, string) (auth.Identity, error) {
+	if s.err != nil {
+		return auth.Identity{}, s.err
+	}
 	return s.identity, nil
 }
 
@@ -169,6 +173,7 @@ func getAuth(t *testing.T, handler http.Handler, path, token string) (int, strin
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Request-Id", "tenant-check")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	body, err := io.ReadAll(rec.Body)
