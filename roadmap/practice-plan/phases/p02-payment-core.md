@@ -156,6 +156,7 @@
 - **常見陷阱**：前端一回報成功就把付款標為成功。
 - **Survey**：3D Secure 2、SCA、Stripe handleNextAction、frictionless vs challenge
 - **產出**：`web/checkout` 最小頁面、`docs/payment-lifecycle.md` 補 3DS 流程
+- **現況**：最小頁面已在 `web/checkout`（Mock，卡號是 PSP 欄位占位）。這次改接 live client，並用 Stripe.js 換成真正的驗證，不重做頁面。
 
 ### I-02.09 全額請款
 
