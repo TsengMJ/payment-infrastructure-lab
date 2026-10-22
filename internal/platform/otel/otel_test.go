@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -11,6 +12,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestRequestMetricsUseRouteTemplate(t *testing.T) {
@@ -49,6 +52,36 @@ func TestRequestMetricsUseRouteTemplate(t *testing.T) {
 	}
 	if !sawRoute {
 		t.Fatal("http.route attribute missing")
+	}
+}
+
+func TestHTTPSpanDoesNotRecordAPIKey(t *testing.T) {
+	rec := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	const token = "sk_test_spanexamplespanexamp_spanexamplespanexamplespanexamplespanexa"
+
+	r := chi.NewRouter()
+	r.Use(HTTPMiddleware("payment-api", otelhttp.WithTracerProvider(provider)))
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	r.ServeHTTP(httptest.NewRecorder(), req)
+
+	for _, span := range rec.Ended() {
+		for _, attr := range span.Attributes() {
+			if strings.Contains(attr.Value.String(), token) {
+				t.Fatalf("attribute %s contains the api key", attr.Key)
+			}
+		}
+		for _, event := range span.Events() {
+			for _, attr := range event.Attributes {
+				if strings.Contains(attr.Value.String(), token) {
+					t.Fatalf("event %s contains the api key", event.Name)
+				}
+			}
+		}
 	}
 }
 

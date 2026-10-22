@@ -13,7 +13,7 @@ type fakePinger struct {
 	err error
 }
 
-func (f fakePinger) PingContext(context.Context) error { return f.err }
+func (f fakePinger) Ping(context.Context) error { return f.err }
 
 func TestHealthzIgnoresDatabase(t *testing.T) {
 	status := get(t, newHandler(fakePinger{err: errors.New("down")}, discardLog(), nil), "/healthz")
@@ -33,6 +33,13 @@ func TestReadyzOkWhenDatabasePingSucceeds(t *testing.T) {
 	status := get(t, newHandler(fakePinger{}, discardLog(), nil), "/readyz")
 	if status != http.StatusOK {
 		t.Fatalf("status %d, want 200", status)
+	}
+}
+
+func TestMetricsIsNotOnThePublicPort(t *testing.T) {
+	status := get(t, newHandler(fakePinger{}, discardLog(), nil), "/metrics")
+	if status != http.StatusNotFound {
+		t.Fatalf("status %d, want 404", status)
 	}
 }
 
