@@ -37,7 +37,7 @@ func TestRequestMetricsUseRouteTemplate(t *testing.T) {
 	for _, attr := range metricAttributes(got) {
 		key := string(attr.Key)
 		switch key {
-		case "payment_id", "merchant_id", "trace_id", "url.path", "url.full", "http.target":
+		case "payment_id", "merchant_id", "trace_id", "request_id", "url.path", "url.full", "http.target":
 			t.Fatalf("high-cardinality attribute %s=%v", key, attr.Value)
 		}
 		if attr.Value.AsString() == "pay_123" || attr.Value.AsString() == "/payments/pay_123" {

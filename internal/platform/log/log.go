@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/requestid"
 )
 
 const redacted = "***"
@@ -31,7 +33,7 @@ var secretKeys = map[string]struct{}{
 }
 
 // New returns a JSON logger. Every record includes service, request_id and
-// trace_id. request_id stays empty until a later iteration fills it in.
+// trace_id. request_id comes from the request context and is empty outside a request.
 // trace_id is copied from the span on the record's context when that span is valid.
 func New(w io.Writer, service string, level slog.Level) *slog.Logger {
 	inner := slog.NewJSONHandler(w, &slog.HandlerOptions{
@@ -40,12 +42,12 @@ func New(w io.Writer, service string, level slog.Level) *slog.Logger {
 	})
 	return slog.New(traceHandler{next: inner}).With(
 		slog.String("service", service),
-		slog.String("request_id", ""),
 	)
 }
 
-// traceHandler adds trace_id from the active span. The value is the same
-// 32-character hex string Tempo shows. A record with no span gets an empty id.
+// traceHandler adds trace_id from the active span and request_id from the
+// request context. trace_id is the same 32-character hex string Tempo shows.
+// A record with no span or no request id gets an empty string.
 type traceHandler struct {
 	next slog.Handler
 }
@@ -55,11 +57,14 @@ func (h traceHandler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h traceHandler) Handle(ctx context.Context, record slog.Record) error {
-	id := ""
+	traceID := ""
 	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
-		id = sc.TraceID().String()
+		traceID = sc.TraceID().String()
 	}
-	record.AddAttrs(slog.String("trace_id", id))
+	record.AddAttrs(
+		slog.String("trace_id", traceID),
+		slog.String("request_id", requestid.FromContext(ctx)),
+	)
 	return h.next.Handle(ctx, record)
 }
 
