@@ -5,6 +5,7 @@ package merchant
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -47,7 +48,10 @@ func TestCreateAndGetWithEmail(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	got, err := svc.Create(ctx, "  Northwind  ", "  Ops@Example.com  ")
+	got, err := svc.Create(ctx, CreateParams{
+		Name:         "  Northwind  ",
+		ContactEmail: "  Ops@Example.com  ",
+	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -99,7 +103,7 @@ func TestCreateWithoutEmail(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	got, err := svc.Create(ctx, "Acme", "   ")
+	got, err := svc.Create(ctx, CreateParams{Name: "Acme", ContactEmail: "   "})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -117,11 +121,14 @@ func TestCreateRejectsInvalidFields(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if _, err := svc.Create(ctx, "   ", "ops@example.com"); !errors.Is(err, ErrInvalidName) {
+	if _, err := svc.Create(ctx, CreateParams{Name: "   ", ContactEmail: "ops@example.com"}); !errors.Is(err, ErrInvalidName) {
 		t.Fatalf("blank name err = %v", err)
 	}
-	if _, err := svc.Create(ctx, "Acme", "not-an-email"); !errors.Is(err, ErrInvalidEmail) {
+	if _, err := svc.Create(ctx, CreateParams{Name: "Acme", ContactEmail: "not-an-email"}); !errors.Is(err, ErrInvalidEmail) {
 		t.Fatalf("email err = %v", err)
+	}
+	if _, err := svc.Create(ctx, CreateParams{Name: "Acme", Metadata: json.RawMessage(`[]`)}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("metadata err = %v", err)
 	}
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM merchant.merchants`).Scan(&n); err != nil {
@@ -201,6 +208,101 @@ VALUES ($1::uuid, 'Default Meta', 'active', $2, $2)`, id.String(), now); err != 
 	if !empty {
 		t.Fatal("metadata is not an empty object")
 	}
+}
+
+func TestCreateWritesMetadata(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	got, err := svc.Create(ctx, CreateParams{
+		Name:     "Northwind",
+		Metadata: json.RawMessage(`{"tier":"gold"}`),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if compactJSON(t, got.Metadata) != `{"tier":"gold"}` {
+		t.Fatalf("metadata = %s", got.Metadata)
+	}
+	again, err := svc.Get(ctx, got.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if compactJSON(t, again.Metadata) != `{"tier":"gold"}` {
+		t.Fatalf("stored metadata = %s", again.Metadata)
+	}
+}
+
+func TestUpdateReplacesMerchantData(t *testing.T) {
+	t.Parallel()
+	svc, _, clk := newFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	created, err := svc.Create(ctx, CreateParams{
+		Name:         "Northwind",
+		ContactEmail: "old@example.com",
+		Metadata:     json.RawMessage(`{"tier":"gold"}`),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	clk.Advance(time.Hour)
+	updated, err := svc.Update(ctx, created.ID, UpdateParams{
+		Name:         "  Northwind Trading  ",
+		ContactEmail: "  new@example.com  ",
+		Status:       StatusSuspended,
+		Metadata:     json.RawMessage(`{"tier":"silver"}`),
+	})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.ID != created.ID || !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("identity changed: %+v", updated)
+	}
+	if updated.Name != "Northwind Trading" || updated.ContactEmail != "new@example.com" || updated.Status != StatusSuspended {
+		t.Fatalf("Update = %+v", updated)
+	}
+	if !updated.UpdatedAt.Equal(clk.Now()) || updated.UpdatedAt.Equal(created.UpdatedAt) {
+		t.Fatalf("updated_at = %s, clock = %s, created updated_at = %s", updated.UpdatedAt, clk.Now(), created.UpdatedAt)
+	}
+	if compactJSON(t, updated.Metadata) != `{"tier":"silver"}` {
+		t.Fatalf("metadata = %s", updated.Metadata)
+	}
+	again, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if again.Name != updated.Name || again.Status != updated.Status || compactJSON(t, again.Metadata) != `{"tier":"silver"}` {
+		t.Fatalf("Get = %+v", again)
+	}
+}
+
+func TestUpdateMissingMerchant(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	missing, err := NewID()
+	if err != nil {
+		t.Fatalf("NewID: %v", err)
+	}
+	_, err = svc.Update(ctx, missing, UpdateParams{Name: "Acme", Status: StatusActive})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Update err = %v", err)
+	}
+}
+
+func compactJSON(t *testing.T, raw []byte) string {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		t.Fatalf("compact %s: %v", raw, err)
+	}
+	return buf.String()
 }
 
 func newFixture(t *testing.T) (*Service, *pgxpool.Pool, *testutil.FakeClock) {

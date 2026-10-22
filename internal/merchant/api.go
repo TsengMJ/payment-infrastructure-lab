@@ -23,6 +23,10 @@ var (
 	ErrInvalidEmail = errors.New("invalid contact email")
 	// ErrInvalidID is returned when an external ID is not mer_ plus 32 lowercase hex digits.
 	ErrInvalidID = errors.New("invalid merchant id")
+	// ErrInvalidMetadata is returned when metadata is not a JSON object.
+	ErrInvalidMetadata = errors.New("invalid merchant metadata")
+	// ErrInvalidStatus is returned when status is not active, suspended, or closed.
+	ErrInvalidStatus = errors.New("invalid merchant status")
 )
 
 // Status is the lifecycle of a merchant. The database CHECK allows only these values.
@@ -36,7 +40,7 @@ const (
 
 // Merchant is one row of merchant.merchants.
 // ContactEmail is empty when the column is NULL.
-// Metadata is the stored JSON object. Create leaves it as {}.
+// Metadata is the stored JSON object. An omitted value is stored as {}.
 type Merchant struct {
 	ID           ID
 	Name         string

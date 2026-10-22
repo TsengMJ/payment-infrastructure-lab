@@ -12,13 +12,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// NewMerchant is a row to insert. Metadata is omitted so the database default applies.
+// NewMerchant is a row to insert. Metadata is written by the caller.
 type NewMerchant struct {
 	ID           uuid.UUID
 	Name         string
 	Status       string
 	ContactEmail *string
+	Metadata     []byte
 	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+// MerchantUpdate replaces the mutable columns of one merchant.
+type MerchantUpdate struct {
+	ID           uuid.UUID
+	Name         string
+	Status       string
+	ContactEmail *string
+	Metadata     []byte
 	UpdatedAt    time.Time
 }
 
@@ -43,16 +54,32 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
-// Insert writes one merchant and returns the stored row, including default metadata.
+// Insert writes one merchant, including metadata, and returns the stored row.
 func (s *Store) Insert(ctx context.Context, in NewMerchant) (Row, error) {
 	const q = `
-INSERT INTO merchant.merchants (id, name, status, contact_email, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO merchant.merchants (id, name, status, contact_email, metadata, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, name, status, contact_email, metadata, created_at, updated_at`
 	row, err := scan(s.pool.QueryRow(ctx, q,
-		pgUUID(in.ID), in.Name, in.Status, in.ContactEmail, in.CreatedAt, in.UpdatedAt))
+		pgUUID(in.ID), in.Name, in.Status, in.ContactEmail, in.Metadata, in.CreatedAt, in.UpdatedAt))
 	if err != nil {
 		return Row{}, fmt.Errorf("insert merchant: %w", err)
+	}
+	return row, nil
+}
+
+// Update replaces name, status, contact email, metadata, and updated_at.
+// It returns pgx.ErrNoRows when the id is absent.
+func (s *Store) Update(ctx context.Context, in MerchantUpdate) (Row, error) {
+	const q = `
+UPDATE merchant.merchants
+SET name = $2, status = $3, contact_email = $4, metadata = $5, updated_at = $6
+WHERE id = $1
+RETURNING id, name, status, contact_email, metadata, created_at, updated_at`
+	row, err := scan(s.pool.QueryRow(ctx, q,
+		pgUUID(in.ID), in.Name, in.Status, in.ContactEmail, in.Metadata, in.UpdatedAt))
+	if err != nil {
+		return Row{}, err
 	}
 	return row, nil
 }

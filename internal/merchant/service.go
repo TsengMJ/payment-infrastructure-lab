@@ -1,6 +1,7 @@
 package merchant
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,7 +16,7 @@ import (
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/clock"
 )
 
-// Service creates and loads merchants. It does not expose HTTP.
+// Service creates, updates, and loads merchants. It does not expose HTTP.
 type Service struct {
 	store *postgres.Store
 	clock clock.Clock
@@ -30,15 +31,35 @@ func NewService(pool *pgxpool.Pool, clk clock.Clock) *Service {
 	return &Service{store: postgres.NewStore(pool), clock: clk}
 }
 
+// CreateParams is the input for a new merchant. Status is always active.
+// Metadata is optional; blank means {}.
+type CreateParams struct {
+	Name         string
+	ContactEmail string
+	Metadata     json.RawMessage
+}
+
+// UpdateParams replaces the mutable fields of an existing merchant.
+// Metadata replaces the stored object. It does not merge keys.
+type UpdateParams struct {
+	Name         string
+	ContactEmail string
+	Status       Status
+	Metadata     json.RawMessage
+}
+
 // Create stores a merchant in status active.
-// contactEmail is optional; blank means no address is stored.
-// metadata is not accepted and stays the database default {}.
-func (s *Service) Create(ctx context.Context, name, contactEmail string) (Merchant, error) {
-	name, err := normalizeName(name)
+// ContactEmail is optional; blank means no address is stored.
+func (s *Service) Create(ctx context.Context, in CreateParams) (Merchant, error) {
+	name, err := normalizeName(in.Name)
 	if err != nil {
 		return Merchant{}, err
 	}
-	email, err := normalizeEmail(contactEmail)
+	email, err := normalizeEmail(in.ContactEmail)
+	if err != nil {
+		return Merchant{}, err
+	}
+	meta, err := normalizeMetadata(in.Metadata)
 	if err != nil {
 		return Merchant{}, err
 	}
@@ -52,11 +73,49 @@ func (s *Service) Create(ctx context.Context, name, contactEmail string) (Mercha
 		Name:         name,
 		Status:       string(StatusActive),
 		ContactEmail: email,
+		Metadata:     meta,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	})
 	if err != nil {
 		return Merchant{}, fmt.Errorf("create merchant: %w", err)
+	}
+	return toMerchant(row), nil
+}
+
+// Update replaces name, contact email, status, and metadata.
+// created_at stays as it was. updated_at becomes the current clock time.
+// A missing merchant returns ErrNotFound.
+func (s *Service) Update(ctx context.Context, id ID, in UpdateParams) (Merchant, error) {
+	name, err := normalizeName(in.Name)
+	if err != nil {
+		return Merchant{}, err
+	}
+	email, err := normalizeEmail(in.ContactEmail)
+	if err != nil {
+		return Merchant{}, err
+	}
+	status, err := normalizeStatus(in.Status)
+	if err != nil {
+		return Merchant{}, err
+	}
+	meta, err := normalizeMetadata(in.Metadata)
+	if err != nil {
+		return Merchant{}, err
+	}
+	row, err := s.store.Update(ctx, postgres.MerchantUpdate{
+		ID:           id.uuid(),
+		Name:         name,
+		Status:       string(status),
+		ContactEmail: email,
+		Metadata:     meta,
+		UpdatedAt:    s.clock.Now().UTC(),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Merchant{}, ErrNotFound
+	}
+	if err != nil {
+		return Merchant{}, fmt.Errorf("update merchant: %w", err)
 	}
 	return toMerchant(row), nil
 }
@@ -91,6 +150,26 @@ func normalizeEmail(email string) (*string, error) {
 		return nil, ErrInvalidEmail
 	}
 	return &email, nil
+}
+
+func normalizeMetadata(raw json.RawMessage) ([]byte, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return []byte(`{}`), nil
+	}
+	if !json.Valid(trimmed) || trimmed[0] != '{' {
+		return nil, ErrInvalidMetadata
+	}
+	return trimmed, nil
+}
+
+func normalizeStatus(status Status) (Status, error) {
+	switch status {
+	case StatusActive, StatusSuspended, StatusClosed:
+		return status, nil
+	default:
+		return "", ErrInvalidStatus
+	}
 }
 
 func toMerchant(row postgres.Row) Merchant {
