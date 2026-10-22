@@ -7,6 +7,8 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/tenant"
 )
 
 type errorBody struct {
@@ -37,7 +39,12 @@ func RequireBearer(authenticator Authenticator) func(http.Handler) http.Handler 
 				writeCode(w, http.StatusForbidden, "merchant_inactive")
 				return
 			}
-			ctx := contextWithMerchant(r.Context(), identity.MerchantID)
+			sc, err := tenant.New(identity.MerchantID, identity.Mode)
+			if err != nil {
+				writeCode(w, http.StatusInternalServerError, "internal_error")
+				return
+			}
+			ctx := tenant.WithContext(contextWithMerchant(r.Context(), identity.MerchantID), sc)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -16,7 +16,7 @@ type pinger interface {
 	Ping(ctx context.Context) error
 }
 
-func newHandler(ready pinger, logger *slog.Logger, authenticator auth.Authenticator) http.Handler {
+func newHandler(ready pinger, logger *slog.Logger, authenticator auth.Authenticator, keys apiKeyReader) http.Handler {
 	r := chi.NewRouter()
 	r.Use(otel.HTTPMiddleware("payment-api"))
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -41,6 +41,8 @@ func newHandler(ready pinger, logger *slog.Logger, authenticator auth.Authentica
 	})
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(auth.RequireBearer(authenticator))
+		r.Get("/api_keys", listAPIKeys(keys))
+		r.Get("/api_keys/{key_id}", getAPIKey(keys))
 	})
 	return r
 }

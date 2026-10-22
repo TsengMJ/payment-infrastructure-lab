@@ -8,12 +8,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/tenant"
 )
 
 func TestCreateAPIKeyStoresHashOnly(t *testing.T) {
@@ -186,5 +189,106 @@ VALUES ($1, $2, 'test', $3, 'abcd', 'orphan', now())`,
 	_, err = svc.AuthenticateAPIKey(expired, token, ModeTest)
 	if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalidAPIKey) {
 		t.Fatalf("store outage err = %v", err)
+	}
+}
+
+func TestOwnedAPIKeyReadsHideOtherTenants(t *testing.T) {
+	t.Parallel()
+	svc, _, _ := newFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	merchantA, err := svc.Create(ctx, CreateParams{Name: "Northwind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	merchantB, err := svc.Create(ctx, CreateParams{Name: "Contoso"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aTest, _, err := svc.CreateAPIKey(ctx, merchantA.ID, "primary", ModeTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aLive, _, err := svc.CreateAPIKey(ctx, merchantA.ID, "live", ModeLive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bTest, _, err := svc.CreateAPIKey(ctx, merchantB.ID, "primary", ModeTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bScope, err := tenant.New(merchantB.ID.UUID(), ModeTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GetAPIKey(ctx, bScope, aTest.KeyID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross merchant err = %v", err)
+	}
+	if _, err := svc.GetAPIKey(ctx, bScope, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing err = %v", err)
+	}
+	listed, err := svc.ListAPIKeys(ctx, bScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].KeyID != bTest.KeyID {
+		t.Fatalf("list = %#v", listed)
+	}
+	aScope, err := tenant.New(merchantA.ID.UUID(), ModeTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.GetAPIKey(ctx, aScope, aLive.KeyID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("other mode err = %v", err)
+	}
+	got, err := svc.GetAPIKey(ctx, aScope, aTest.KeyID)
+	if err != nil || got.KeyID != aTest.KeyID || got.Mode != ModeTest {
+		t.Fatalf("own key %#v err %v", got, err)
+	}
+	if _, err := svc.GetAPIKey(ctx, tenant.Scope{}, aTest.KeyID); errors.Is(err, ErrNotFound) {
+		t.Fatal("invalid scope was reported as not found")
+	}
+}
+
+func TestListAPIKeysStopsAt100(t *testing.T) {
+	t.Parallel()
+	svc, _, clk := newFixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	merchant, err := svc.Create(ctx, CreateParams{Name: "Northwind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, 101)
+	for i := range 101 {
+		key, _, err := svc.CreateAPIKey(ctx, merchant.ID, fmt.Sprintf("key-%03d", i), ModeTest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, key.KeyID)
+		clk.Advance(time.Second)
+	}
+	sc, err := tenant.New(merchant.ID.UUID(), ModeTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.ListAPIKeys(ctx, sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 100 {
+		t.Fatalf("len = %d", len(listed))
+	}
+	seen := map[string]struct{}{}
+	for _, row := range listed {
+		seen[row.KeyID] = struct{}{}
+	}
+	if _, ok := seen[ids[100]]; ok {
+		t.Fatal("list included the newest key past the limit")
+	}
+	if _, ok := seen[ids[0]]; !ok {
+		t.Fatal("list dropped the oldest key")
 	}
 }

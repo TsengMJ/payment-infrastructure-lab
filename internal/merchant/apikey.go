@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/merchant/internal/postgres"
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/tenant"
 )
 
 const (
@@ -55,6 +56,36 @@ func (s *Service) CreateAPIKey(ctx context.Context, merchantID ID, name, mode st
 		}
 		return APIKey{}, "", classifyStoreErr(err)
 	}
+	return toAPIKey(row), token, nil
+}
+
+// GetAPIKey loads one key owned by this merchant and mode.
+// A different merchant, the other mode, and an unknown id are ErrNotFound.
+func (s *Service) GetAPIKey(ctx context.Context, sc tenant.Scope, keyID string) (APIKey, error) {
+	row, err := s.store.GetOwnedAPIKey(ctx, sc, keyID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return APIKey{}, ErrNotFound
+	}
+	if err != nil {
+		return APIKey{}, fmt.Errorf("get api key: %w", err)
+	}
+	return toAPIKey(row), nil
+}
+
+// ListAPIKeys returns this merchant and mode's keys, at most 100.
+func (s *Service) ListAPIKeys(ctx context.Context, sc tenant.Scope) ([]APIKey, error) {
+	rows, err := s.store.ListOwnedAPIKeys(ctx, sc)
+	if err != nil {
+		return nil, fmt.Errorf("list api keys: %w", err)
+	}
+	out := make([]APIKey, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toAPIKey(row))
+	}
+	return out, nil
+}
+
+func toAPIKey(row postgres.APIKeyRow) APIKey {
 	return APIKey{
 		KeyID:      row.KeyID,
 		MerchantID: ID{v: row.MerchantID},
@@ -62,7 +93,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, merchantID ID, name, mode st
 		Last4:      row.Last4,
 		Name:       row.Name,
 		CreatedAt:  row.CreatedAt,
-	}, token, nil
+	}
 }
 
 // AuthenticateAPIKey checks the token against processMode.
