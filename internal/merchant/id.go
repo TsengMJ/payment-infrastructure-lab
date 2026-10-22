@@ -32,6 +32,9 @@ func (id ID) String() string {
 
 func (id ID) uuid() uuid.UUID { return id.v }
 
+// UUID returns the primary key stored in PostgreSQL.
+func (id ID) UUID() uuid.UUID { return id.v }
+
 // ParseID accepts only the external form produced by String.
 // It rejects a bare UUID, a wrong prefix, uppercase hex, and hyphens.
 func ParseID(s string) (ID, error) {

@@ -73,7 +73,7 @@ make migrate-up
 make up-observability
 ```
 
-Grafana 在 `http://127.0.0.1:3000`，Prometheus 與 Tempo 的 datasource 已由檔案寫入，不用在畫面上新增。Prometheus 對宿主機開在 `http://127.0.0.1:9091`（容器內仍是 9090；宿主機的 9090 常被本機 proxy 佔用）。API 仍在宿主機跑。Prometheus 抓 `host.docker.internal:8080/metrics`。把 `.env` 裡的 `OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317` 打開後再啟動 API，trace 才會送到 collector。沒設這個變數時，行程仍會產生 span，日誌裡仍有 `trace_id`。日誌留在標準輸出，這次不送進 Loki。請求數在 Grafana 查 `http_server_request_duration_seconds_count`，label 用 `http_route`，不要用原始路徑。
+Grafana 在 `http://127.0.0.1:3000`，Prometheus 與 Tempo 的 datasource 已由檔案寫入，不用在畫面上新增。Prometheus 對宿主機開在 `http://127.0.0.1:9091`（容器內仍是 9090；宿主機的 9090 常被本機 proxy 佔用）。API 仍在宿主機跑。Prometheus 抓 `host.docker.internal:8081/metrics`。公開的 API 埠不提供 `/metrics`。把 `.env` 裡的 `OTEL_EXPORTER_OTLP_ENDPOINT=127.0.0.1:4317` 打開後再啟動 API，trace 才會送到 collector。沒設這個變數時，行程仍會產生 span，日誌裡仍有 `trace_id`。日誌留在標準輸出，這次不送進 Loki。請求數在 Grafana 查 `http_server_request_duration_seconds_count`，label 用 `http_route`，不要用原始路徑。
 
 
 ```sh

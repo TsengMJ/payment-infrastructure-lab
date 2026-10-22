@@ -19,28 +19,51 @@ const redacted = "***"
 // replaced with redacted when the value is logged.
 type Config struct {
 	DatabaseURL     string        `secret:"true" json:"database_url"`
+	RedisURL        string        `secret:"true" json:"redis_url"`
+	PaymentMode     string        `json:"payment_mode"`
 	HTTPAddr        string        `json:"http_addr"`
+	MetricsAddr     string        `json:"metrics_addr"`
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
 	LogLevel        string        `json:"log_level"`
 }
 
-// Load reads configuration from the environment. Required secrets have no
-// default: a missing DATABASE_URL is an error that names the variable.
+// Load reads configuration from the environment. Required settings have no
+// default: a missing DATABASE_URL, REDIS_URL, or PAYMENT_MODE is an error
+// that names the variable.
 func Load() (Config, error) {
 	var missing []string
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		missing = append(missing, "DATABASE_URL")
-	} else if err := validateDatabaseURL(databaseURL); err != nil {
-		return Config{}, fmt.Errorf("DATABASE_URL: %w", err)
+	}
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		missing = append(missing, "REDIS_URL")
+	}
+	mode := os.Getenv("PAYMENT_MODE")
+	if mode == "" {
+		missing = append(missing, "PAYMENT_MODE")
 	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("missing required config: %s", strings.Join(missing, ", "))
+	}
+	if err := validateDatabaseURL(databaseURL); err != nil {
+		return Config{}, fmt.Errorf("DATABASE_URL: %w", err)
+	}
+	if err := validateRedisURL(redisURL); err != nil {
+		return Config{}, fmt.Errorf("REDIS_URL: %w", err)
+	}
+	if mode != "test" && mode != "live" {
+		return Config{}, fmt.Errorf("PAYMENT_MODE: must be test or live")
 	}
 
 	addr := os.Getenv("HTTP_ADDR")
 	if addr == "" {
 		addr = ":8080"
+	}
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = ":8081"
 	}
 
 	timeout := 10 * time.Second
@@ -64,10 +87,27 @@ func Load() (Config, error) {
 
 	return Config{
 		DatabaseURL:     databaseURL,
+		RedisURL:        redisURL,
+		PaymentMode:     mode,
 		HTTPAddr:        addr,
+		MetricsAddr:     metricsAddr,
 		ShutdownTimeout: timeout,
 		LogLevel:        level,
 	}, nil
+}
+
+func validateRedisURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid URL")
+	}
+	if u.Scheme != "redis" && u.Scheme != "rediss" {
+		return fmt.Errorf("scheme must be redis or rediss")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("must include a host")
+	}
+	return nil
 }
 
 func validateDatabaseURL(raw string) error {

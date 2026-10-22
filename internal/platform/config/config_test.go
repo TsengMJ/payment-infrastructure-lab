@@ -21,6 +21,7 @@ func TestLoadMissingDatabaseURLNamesTheVariable(t *testing.T) {
 }
 
 func TestLoadRejectsMalformedDatabaseURL(t *testing.T) {
+	setRequiredConfig(t)
 	t.Setenv("DATABASE_URL", "not-a-url")
 
 	_, err := Load()
@@ -32,9 +33,24 @@ func TestLoadRejectsMalformedDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsPaymentModeAndRedisURL(t *testing.T) {
+	setRequiredConfig(t)
+	t.Setenv("PAYMENT_MODE", "sandbox")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "PAYMENT_MODE") {
+		t.Fatalf("PAYMENT_MODE error = %v", err)
+	}
+
+	t.Setenv("PAYMENT_MODE", "test")
+	t.Setenv("REDIS_URL", "http://127.0.0.1:6379")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
+		t.Fatalf("REDIS_URL error = %v", err)
+	}
+}
+
 func TestLoadUsesDefaultsForNonSecrets(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://payment:pw@127.0.0.1:5432/payment_dev?sslmode=disable")
+	setRequiredConfig(t)
 	t.Setenv("HTTP_ADDR", "")
+	t.Setenv("METRICS_ADDR", "")
 	t.Setenv("SHUTDOWN_TIMEOUT", "")
 	t.Setenv("LOG_LEVEL", "")
 
@@ -45,6 +61,12 @@ func TestLoadUsesDefaultsForNonSecrets(t *testing.T) {
 	if cfg.HTTPAddr != ":8080" {
 		t.Fatalf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
 	}
+	if cfg.MetricsAddr != ":8081" {
+		t.Fatalf("MetricsAddr = %q, want :8081", cfg.MetricsAddr)
+	}
+	if cfg.PaymentMode != "test" {
+		t.Fatalf("PaymentMode = %q", cfg.PaymentMode)
+	}
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Fatalf("ShutdownTimeout = %s, want 10s", cfg.ShutdownTimeout)
 	}
@@ -54,8 +76,10 @@ func TestLoadUsesDefaultsForNonSecrets(t *testing.T) {
 }
 
 func TestLoadKeepsExplicitNonSecrets(t *testing.T) {
+	setRequiredConfig(t)
 	t.Setenv("DATABASE_URL", "postgres://payment:pw@127.0.0.1:5432/payment_dev")
 	t.Setenv("HTTP_ADDR", "127.0.0.1:9090")
+	t.Setenv("METRICS_ADDR", "127.0.0.1:9091")
 	t.Setenv("SHUTDOWN_TIMEOUT", "3s")
 	t.Setenv("LOG_LEVEL", "debug")
 
@@ -63,16 +87,27 @@ func TestLoadKeepsExplicitNonSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.HTTPAddr != "127.0.0.1:9090" || cfg.ShutdownTimeout != 3*time.Second || cfg.LogLevel != "debug" {
+	if cfg.HTTPAddr != "127.0.0.1:9090" || cfg.MetricsAddr != "127.0.0.1:9091" || cfg.ShutdownTimeout != 3*time.Second || cfg.LogLevel != "debug" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }
 
+func setRequiredConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("DATABASE_URL", "postgres://payment:pw@127.0.0.1:5432/payment_dev?sslmode=disable")
+	t.Setenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+	t.Setenv("PAYMENT_MODE", "test")
+}
+
 func TestLogValueRedactsDatabaseURL(t *testing.T) {
 	const password = "super-secret-pw"
+	const redisPassword = "redis-secret-pw"
 	cfg := Config{
 		DatabaseURL:     "postgres://payment:" + password + "@127.0.0.1:5432/payment_dev",
+		RedisURL:        "redis://:" + redisPassword + "@127.0.0.1:6379/0",
+		PaymentMode:     "test",
 		HTTPAddr:        ":8080",
+		MetricsAddr:     ":8081",
 		ShutdownTimeout: 10 * time.Second,
 		LogLevel:        "info",
 	}
@@ -82,14 +117,14 @@ func TestLogValueRedactsDatabaseURL(t *testing.T) {
 	logger.Info("startup", "config", cfg)
 
 	logged := buf.String()
-	if strings.Contains(logged, password) {
-		t.Fatalf("log contains the database password: %s", logged)
+	if strings.Contains(logged, password) || strings.Contains(logged, redisPassword) {
+		t.Fatalf("log contains a secret: %s", logged)
 	}
 	if strings.Contains(logged, "payment_dev") {
 		t.Fatalf("log contains the database URL: %s", logged)
 	}
-	if !strings.Contains(logged, `"database_url":"***"`) {
-		t.Fatalf("database_url was not redacted: %s", logged)
+	if !strings.Contains(logged, `"database_url":"***"`) || !strings.Contains(logged, `"redis_url":"***"`) {
+		t.Fatalf("secret fields were not redacted: %s", logged)
 	}
 	if !strings.Contains(logged, `"http_addr":":8080"`) {
 		t.Fatalf("non-secret field missing: %s", logged)
