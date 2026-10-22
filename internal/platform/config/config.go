@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const redacted = "***"
@@ -21,6 +22,7 @@ type Config struct {
 	DatabaseURL     string        `secret:"true" json:"database_url"`
 	RedisURL        string        `secret:"true" json:"redis_url"`
 	PaymentMode     string        `json:"payment_mode"`
+	ManagementToken string        `secret:"true" json:"management_token"`
 	HTTPAddr        string        `json:"http_addr"`
 	MetricsAddr     string        `json:"metrics_addr"`
 	ShutdownTimeout time.Duration `json:"shutdown_timeout"`
@@ -28,8 +30,8 @@ type Config struct {
 }
 
 // Load reads configuration from the environment. Required settings have no
-// default: a missing DATABASE_URL, REDIS_URL, or PAYMENT_MODE is an error
-// that names the variable.
+// default: a missing DATABASE_URL, REDIS_URL, PAYMENT_MODE, or MANAGEMENT_TOKEN
+// is an error that names the variable.
 func Load() (Config, error) {
 	var missing []string
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -44,6 +46,10 @@ func Load() (Config, error) {
 	if mode == "" {
 		missing = append(missing, "PAYMENT_MODE")
 	}
+	managementToken := os.Getenv("MANAGEMENT_TOKEN")
+	if managementToken == "" {
+		missing = append(missing, "MANAGEMENT_TOKEN")
+	}
 	if len(missing) > 0 {
 		return Config{}, fmt.Errorf("missing required config: %s", strings.Join(missing, ", "))
 	}
@@ -55,6 +61,9 @@ func Load() (Config, error) {
 	}
 	if mode != "test" && mode != "live" {
 		return Config{}, fmt.Errorf("PAYMENT_MODE: must be test or live")
+	}
+	if utf8.RuneCountInString(managementToken) < 32 {
+		return Config{}, fmt.Errorf("MANAGEMENT_TOKEN: must be at least 32 characters")
 	}
 
 	addr := os.Getenv("HTTP_ADDR")
@@ -89,6 +98,7 @@ func Load() (Config, error) {
 		DatabaseURL:     databaseURL,
 		RedisURL:        redisURL,
 		PaymentMode:     mode,
+		ManagementToken: managementToken,
 		HTTPAddr:        addr,
 		MetricsAddr:     metricsAddr,
 		ShutdownTimeout: timeout,

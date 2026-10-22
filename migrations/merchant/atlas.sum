@@ -1,4 +1,5 @@
-h1:NFJix4Nc7Zj9GukXwaILc2+sltjpFh/Hkw/JORERblQ=
+h1:oKHtrN2ObNJmT1nUnPjQyZ+O2Ln0+RZf/uCECNCClsg=
 20261021032910_create_schema.sql h1:xwkcPNf6EnpSrjXV+1BjPJQhzF6hmBZ59qkSJCPRI9E=
 20261021153003_create_merchants.sql h1:+h9HN2F63oGk5B4gMbH4WnZ7ynbQ5Pu5I/bt7FtZyh4=
 20261022014858_create_api_keys.sql h1:NBa1UuqiGOT82pWyBt9a+cX+8oYEQisaA7gJBA7V2BA=
+20261022033728_api_key_rotation.sql h1:VP3uuL89/eaaWnSG3rDWcunhPlVa3DHgUgv3JwikQGA=

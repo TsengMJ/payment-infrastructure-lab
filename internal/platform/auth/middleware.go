@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-
-	"github.com/google/uuid"
 )
 
 type errorBody struct {
@@ -16,6 +14,8 @@ type errorBody struct {
 // RequireBearer requires one Authorization: Bearer token on the wrapped handler.
 // Invalid keys are 401, inactive merchants are 403, and store failures are 503 or 500.
 // Response bodies contain only a code.
+// A key revoked after this middleware has called the next handler is not cancelled.
+// The next authentication, which reads the database again, is what fails.
 func RequireBearer(authenticator Authenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -37,14 +37,16 @@ func RequireBearer(authenticator Authenticator) func(http.Handler) http.Handler 
 				writeCode(w, http.StatusForbidden, "merchant_inactive")
 				return
 			}
-			ctx := contextWithMerchant(r.Context(), identity.MerchantID)
+			ctx := contextWithMerchant(r.Context(), identity)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-func contextWithMerchant(ctx context.Context, id uuid.UUID) context.Context {
-	return context.WithValue(ctx, merchantIDKey{}, id)
+func contextWithMerchant(ctx context.Context, id Identity) context.Context {
+	ctx = context.WithValue(ctx, merchantIDKey{}, id.MerchantID)
+	ctx = context.WithValue(ctx, accessKey{}, access{mode: id.Mode, keyID: id.KeyID})
+	return ctx
 }
 
 func writeAuthError(w http.ResponseWriter, err error) {

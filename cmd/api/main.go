@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/merchant"
+	"github.com/TsengMJ/payment-infrastructure-lab/internal/payment"
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/clock"
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/config"
 	"github.com/TsengMJ/payment-infrastructure-lab/internal/platform/httpserver"
@@ -38,6 +39,7 @@ func main() {
 	}
 	logger := log.New(os.Stdout, "payment-api", level)
 	logger.Info("starting", "config", cfg)
+	logger.Info("payment mode posture", "payment_mode", cfg.PaymentMode)
 
 	metrics, shutdown, err := otel.Setup(context.Background(), "payment-api")
 	if err != nil {
@@ -66,7 +68,7 @@ func main() {
 	pingCancel()
 
 	keys := merchant.NewService(pool, clock.System{})
-	public := newHandler(pool, logger, newMerchantAuthenticator(keys, cfg.PaymentMode))
+	public := newHandler(pool, logger, newMerchantAuthenticator(keys), cfg.ManagementToken, keys, payment.NewService(pool))
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

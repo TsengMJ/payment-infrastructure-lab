@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -28,7 +29,8 @@ const (
 )
 
 // CreateAPIKey generates a secret key for an active merchant.
-// The returned string is the only copy of the secret. It is not stored.
+// A live key also requires live access. The returned string is the only copy of the secret.
+// The key and its audit event commit together, and the key can be used immediately after that.
 func (s *Service) CreateAPIKey(ctx context.Context, merchantID ID, name, mode string) (APIKey, string, error) {
 	name, err := normalizeKeyName(name)
 	if err != nil {
@@ -40,18 +42,31 @@ func (s *Service) CreateAPIKey(ctx context.Context, merchantID ID, name, mode st
 	}
 	sum := sha256.Sum256(secret)
 	clearBytes(secret)
-	row, err := s.store.InsertAPIKey(ctx, postgres.NewAPIKey{
+	now := s.clock.Now().UTC()
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return APIKey{}, "", fmt.Errorf("api key audit id: %w", err)
+	}
+	row, err := s.store.CreateAPIKey(ctx, postgres.NewAPIKey{
 		KeyID:      keyID,
 		MerchantID: merchantID.uuid(),
 		Mode:       mode,
 		SecretHash: sum[:],
 		Last4:      token[len(token)-4:],
 		Name:       name,
-		CreatedAt:  s.clock.Now().UTC(),
+		CreatedAt:  now,
+	}, postgres.AdminEvent{
+		EventID:    eventID,
+		MerchantID: merchantID.uuid(),
+		KeyID:      &keyID,
+		Action:     EventAPIKeyCreated,
+		Mode:       &mode,
+		Actor:      AuditActorManagement,
+		CreatedAt:  now,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return s.missingOrInactive(ctx, merchantID)
+			return s.explainCreateMiss(ctx, merchantID, mode)
 		}
 		return APIKey{}, "", classifyStoreErr(err)
 	}
@@ -65,18 +80,70 @@ func (s *Service) CreateAPIKey(ctx context.Context, merchantID ID, name, mode st
 	}, token, nil
 }
 
-// AuthenticateAPIKey checks the token against processMode.
+// RevokeAPIKey records revoked_at. A second revoke returns the original time and does not
+// write another audit event. The key id is not a bearer token; a full token is not found.
+func (s *Service) RevokeAPIKey(ctx context.Context, keyID string) (RevokedAPIKey, error) {
+	if len(keyID) != keyIDLen {
+		return RevokedAPIKey{}, ErrNotFound
+	}
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return RevokedAPIKey{}, fmt.Errorf("api key audit id: %w", err)
+	}
+	row, err := s.store.RevokeAPIKey(ctx, keyID, s.clock.Now().UTC(), postgres.AdminEvent{
+		EventID: eventID,
+		Action:  EventAPIKeyRevoked,
+		Actor:   AuditActorManagement,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RevokedAPIKey{}, ErrNotFound
+	}
+	if err != nil {
+		return RevokedAPIKey{}, classifyStoreErr(err)
+	}
+	return RevokedAPIKey{
+		KeyID:      keyID,
+		MerchantID: ID{v: row.MerchantID},
+		Mode:       row.Mode,
+		RevokedAt:  row.RevokedAt,
+	}, nil
+}
+
+// SetLiveAccess grants or removes eligibility to receive new live keys.
+// Existing live keys stay valid. The change and its audit event commit together.
+func (s *Service) SetLiveAccess(ctx context.Context, merchantID ID, enabled bool) (Merchant, error) {
+	now := s.clock.Now().UTC()
+	eventID, err := uuid.NewV7()
+	if err != nil {
+		return Merchant{}, fmt.Errorf("live access audit id: %w", err)
+	}
+	row, err := s.store.SetLiveAccess(ctx, merchantID.uuid(), enabled, now, postgres.AdminEvent{
+		EventID:    eventID,
+		MerchantID: merchantID.uuid(),
+		Action:     EventLiveAccessSet,
+		LiveAccess: &enabled,
+		Actor:      AuditActorManagement,
+		CreatedAt:  now,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Merchant{}, ErrNotFound
+	}
+	if err != nil {
+		return Merchant{}, classifyStoreErr(err)
+	}
+	return toMerchant(row), nil
+}
+
+// AuthenticateAPIKey checks the bearer token.
 // A match returns the merchant's current status and does not apply a status policy.
-// Malformed tokens, unknown keys, hash mismatches, and mode mismatches are ErrInvalidAPIKey.
-func (s *Service) AuthenticateAPIKey(ctx context.Context, token, processMode string) (APIKeyPrincipal, error) {
+// Malformed tokens, unknown keys, revoked keys, hash mismatches, and prefix/row mode
+// mismatches are ErrInvalidAPIKey. The error text does not say which of those it was.
+func (s *Service) AuthenticateAPIKey(ctx context.Context, token string) (APIKeyPrincipal, error) {
 	mode, keyID, secret, err := parseToken(token)
 	if err != nil {
 		return APIKeyPrincipal{}, ErrInvalidAPIKey
 	}
 	defer clearBytes(secret)
-	if mode != processMode || (processMode != ModeTest && processMode != ModeLive) {
-		return APIKeyPrincipal{}, ErrInvalidAPIKey
-	}
 	row, err := s.store.GetAPIKey(ctx, keyID)
 	sum := sha256.Sum256(secret)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -93,7 +160,7 @@ func (s *Service) AuthenticateAPIKey(ctx context.Context, token, processMode str
 	var stored [sha256.Size]byte
 	copy(stored[:], row.SecretHash)
 	match := subtle.ConstantTimeCompare(sum[:], stored[:]) == 1
-	if !match || row.Mode != mode {
+	if !match || row.Mode != mode || row.RevokedAt != nil {
 		return APIKeyPrincipal{}, ErrInvalidAPIKey
 	}
 	return APIKeyPrincipal{
@@ -104,8 +171,8 @@ func (s *Service) AuthenticateAPIKey(ctx context.Context, token, processMode str
 	}, nil
 }
 
-func (s *Service) missingOrInactive(ctx context.Context, merchantID ID) (APIKey, string, error) {
-	status, err := s.store.MerchantStatus(ctx, merchantID.uuid())
+func (s *Service) explainCreateMiss(ctx context.Context, merchantID ID, mode string) (APIKey, string, error) {
+	status, live, err := s.store.MerchantAccess(ctx, merchantID.uuid())
 	if errors.Is(err, pgx.ErrNoRows) {
 		return APIKey{}, "", ErrNotFound
 	}
@@ -114,6 +181,9 @@ func (s *Service) missingOrInactive(ctx context.Context, merchantID ID) (APIKey,
 	}
 	if status != string(StatusActive) {
 		return APIKey{}, "", ErrMerchantInactive
+	}
+	if mode == ModeLive && !live {
+		return APIKey{}, "", ErrLiveAccessRequired
 	}
 	return APIKey{}, "", fmt.Errorf("create api key: merchant was active but the key was not stored")
 }

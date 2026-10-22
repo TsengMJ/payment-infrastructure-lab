@@ -31,6 +31,11 @@ table "merchants" {
     null = false
     type = timestamptz
   }
+  column "live_access" {
+    null    = false
+    type    = boolean
+    default = false
+  }
   primary_key {
     columns = [column.id]
   }
@@ -72,6 +77,10 @@ table "api_keys" {
     null = false
     type = timestamptz
   }
+  column "revoked_at" {
+    null = true
+    type = timestamptz
+  }
   primary_key {
     columns = [column.key_id]
   }
@@ -97,3 +106,61 @@ table "api_keys" {
     expr = "(char_length(name) BETWEEN 1 AND 100)"
   }
 }
+
+table "admin_events" {
+  schema = schema.merchant
+  column "event_id" {
+    null = false
+    type = uuid
+  }
+  column "merchant_id" {
+    null = false
+    type = uuid
+  }
+  column "key_id" {
+    null = true
+    type = text
+  }
+  column "action" {
+    null = false
+    type = text
+  }
+  column "mode" {
+    null = true
+    type = text
+  }
+  column "live_access" {
+    null = true
+    type = boolean
+  }
+  column "actor" {
+    null = false
+    type = text
+  }
+  column "created_at" {
+    null = false
+    type = timestamptz
+  }
+  primary_key {
+    columns = [column.event_id]
+  }
+  foreign_key "admin_events_merchant_id_fkey" {
+    columns     = [column.merchant_id]
+    ref_columns = [table.merchants.column.id]
+    on_update   = NO_ACTION
+    on_delete   = RESTRICT
+  }
+  index "admin_events_merchant_id_idx" {
+    columns = [column.merchant_id]
+  }
+  check "admin_events_actor_length" {
+    expr = "(char_length(actor) BETWEEN 1 AND 100)"
+  }
+  check "admin_events_shape" {
+    expr = "((action IN ('api_key.created', 'api_key.revoked') AND key_id IS NOT NULL AND char_length(key_id) = 22 AND mode IN ('test', 'live') AND live_access IS NULL) OR (action = 'merchant.live_access_set' AND key_id IS NULL AND mode IS NULL AND live_access IS NOT NULL))"
+  }
+}
+
+# Immutability is enforced by triggers in the api_key_rotation migration.
+# Atlas Community cannot declare functions or triggers in this file. Those
+# objects are excluded in atlas.hcl so a later diff does not drop them.

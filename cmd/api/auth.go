@@ -10,20 +10,19 @@ import (
 )
 
 type apiKeys interface {
-	AuthenticateAPIKey(ctx context.Context, token, processMode string) (merchant.APIKeyPrincipal, error)
+	AuthenticateAPIKey(ctx context.Context, token string) (merchant.APIKeyPrincipal, error)
 }
 
 type merchantAuthenticator struct {
 	keys apiKeys
-	mode string
 }
 
-func newMerchantAuthenticator(keys apiKeys, mode string) auth.Authenticator {
-	return merchantAuthenticator{keys: keys, mode: mode}
+func newMerchantAuthenticator(keys apiKeys) auth.Authenticator {
+	return merchantAuthenticator{keys: keys}
 }
 
 func (a merchantAuthenticator) Authenticate(ctx context.Context, token string) (auth.Identity, error) {
-	got, err := a.keys.AuthenticateAPIKey(ctx, token, a.mode)
+	got, err := a.keys.AuthenticateAPIKey(ctx, token)
 	switch {
 	case err == nil:
 		return auth.Identity{

@@ -45,6 +45,12 @@ func TestLoadRejectsPaymentModeAndRedisURL(t *testing.T) {
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "REDIS_URL") {
 		t.Fatalf("REDIS_URL error = %v", err)
 	}
+
+	t.Setenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+	t.Setenv("MANAGEMENT_TOKEN", "too-short")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "MANAGEMENT_TOKEN") {
+		t.Fatalf("MANAGEMENT_TOKEN error = %v", err)
+	}
 }
 
 func TestLoadUsesDefaultsForNonSecrets(t *testing.T) {
@@ -97,15 +103,18 @@ func setRequiredConfig(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://payment:pw@127.0.0.1:5432/payment_dev?sslmode=disable")
 	t.Setenv("REDIS_URL", "redis://127.0.0.1:6379/0")
 	t.Setenv("PAYMENT_MODE", "test")
+	t.Setenv("MANAGEMENT_TOKEN", "local-dev-management-token-not-secret")
 }
 
 func TestLogValueRedactsDatabaseURL(t *testing.T) {
 	const password = "super-secret-pw"
 	const redisPassword = "redis-secret-pw"
+	const managementToken = "local-dev-management-token-not-secret"
 	cfg := Config{
 		DatabaseURL:     "postgres://payment:" + password + "@127.0.0.1:5432/payment_dev",
 		RedisURL:        "redis://:" + redisPassword + "@127.0.0.1:6379/0",
 		PaymentMode:     "test",
+		ManagementToken: managementToken,
 		HTTPAddr:        ":8080",
 		MetricsAddr:     ":8081",
 		ShutdownTimeout: 10 * time.Second,
@@ -117,13 +126,13 @@ func TestLogValueRedactsDatabaseURL(t *testing.T) {
 	logger.Info("startup", "config", cfg)
 
 	logged := buf.String()
-	if strings.Contains(logged, password) || strings.Contains(logged, redisPassword) {
+	if strings.Contains(logged, password) || strings.Contains(logged, redisPassword) || strings.Contains(logged, managementToken) {
 		t.Fatalf("log contains a secret: %s", logged)
 	}
 	if strings.Contains(logged, "payment_dev") {
 		t.Fatalf("log contains the database URL: %s", logged)
 	}
-	if !strings.Contains(logged, `"database_url":"***"`) || !strings.Contains(logged, `"redis_url":"***"`) {
+	if !strings.Contains(logged, `"database_url":"***"`) || !strings.Contains(logged, `"redis_url":"***"`) || !strings.Contains(logged, `"management_token":"***"`) {
 		t.Fatalf("secret fields were not redacted: %s", logged)
 	}
 	if !strings.Contains(logged, `"http_addr":":8080"`) {

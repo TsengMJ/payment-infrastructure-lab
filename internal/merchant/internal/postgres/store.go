@@ -42,6 +42,7 @@ type Row struct {
 	Metadata     []byte
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	LiveAccess   bool
 }
 
 // Store reads and writes merchant.merchants.
@@ -59,7 +60,7 @@ func (s *Store) Insert(ctx context.Context, in NewMerchant) (Row, error) {
 	const q = `
 INSERT INTO merchant.merchants (id, name, status, contact_email, metadata, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, name, status, contact_email, metadata, created_at, updated_at`
+RETURNING id, name, status, contact_email, metadata, created_at, updated_at, live_access`
 	row, err := scan(s.pool.QueryRow(ctx, q,
 		pgUUID(in.ID), in.Name, in.Status, in.ContactEmail, in.Metadata, in.CreatedAt, in.UpdatedAt))
 	if err != nil {
@@ -75,7 +76,7 @@ func (s *Store) Update(ctx context.Context, in MerchantUpdate) (Row, error) {
 UPDATE merchant.merchants
 SET name = $2, status = $3, contact_email = $4, metadata = $5, updated_at = $6
 WHERE id = $1
-RETURNING id, name, status, contact_email, metadata, created_at, updated_at`
+RETURNING id, name, status, contact_email, metadata, created_at, updated_at, live_access`
 	row, err := scan(s.pool.QueryRow(ctx, q,
 		pgUUID(in.ID), in.Name, in.Status, in.ContactEmail, in.Metadata, in.UpdatedAt))
 	if err != nil {
@@ -87,7 +88,7 @@ RETURNING id, name, status, contact_email, metadata, created_at, updated_at`
 // Get loads one merchant by primary key. It returns pgx.ErrNoRows when the id is absent.
 func (s *Store) Get(ctx context.Context, id uuid.UUID) (Row, error) {
 	const q = `
-SELECT id, name, status, contact_email, metadata, created_at, updated_at
+SELECT id, name, status, contact_email, metadata, created_at, updated_at, live_access
 FROM merchant.merchants
 WHERE id = $1`
 	row, err := scan(s.pool.QueryRow(ctx, q, pgUUID(id)))
@@ -104,7 +105,7 @@ func scan(row pgx.Row) (Row, error) {
 		email *string
 		meta  []byte
 	)
-	err := row.Scan(&id, &out.Name, &out.Status, &email, &meta, &out.CreatedAt, &out.UpdatedAt)
+	err := row.Scan(&id, &out.Name, &out.Status, &email, &meta, &out.CreatedAt, &out.UpdatedAt, &out.LiveAccess)
 	if err != nil {
 		return Row{}, err
 	}
@@ -119,4 +120,46 @@ func scan(row pgx.Row) (Row, error) {
 
 func pgUUID(id uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: [16]byte(id), Valid: true}
+}
+
+// MerchantAccess returns status and live-access eligibility.
+// It returns pgx.ErrNoRows when the id is absent.
+func (s *Store) MerchantAccess(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	const q = `SELECT status, live_access FROM merchant.merchants WHERE id = $1`
+	var (
+		status string
+		live   bool
+	)
+	err := s.pool.QueryRow(ctx, q, pgUUID(id)).Scan(&status, &live)
+	if err != nil {
+		return "", false, err
+	}
+	return status, live, nil
+}
+
+// SetLiveAccess sets the merchant's live-access flag and writes one audit event.
+// It returns pgx.ErrNoRows when the merchant is absent. The event is omitted then.
+func (s *Store) SetLiveAccess(ctx context.Context, id uuid.UUID, enabled bool, updatedAt time.Time, event AdminEvent) (Row, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Row{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const q = `
+UPDATE merchant.merchants
+SET live_access = $2, updated_at = $3
+WHERE id = $1
+RETURNING id, name, status, contact_email, metadata, created_at, updated_at, live_access`
+	row, err := scan(tx.QueryRow(ctx, q, pgUUID(id), enabled, updatedAt))
+	if err != nil {
+		return Row{}, err
+	}
+	if err := insertAdminEvent(ctx, tx, event); err != nil {
+		return Row{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Row{}, err
+	}
+	return row, nil
 }

@@ -19,7 +19,7 @@ func TestMerchantAuthenticatorMapsErrors(t *testing.T) {
 		Mode:       merchant.ModeTest,
 		Status:     merchant.StatusActive,
 	}}
-	authn := newMerchantAuthenticator(keys, merchant.ModeTest)
+	authn := newMerchantAuthenticator(keys)
 	got, err := authn.Authenticate(context.Background(), "token")
 	if err != nil {
 		t.Fatal(err)
@@ -47,6 +47,6 @@ type fakeKeys struct {
 	err       error
 }
 
-func (f *fakeKeys) AuthenticateAPIKey(context.Context, string, string) (merchant.APIKeyPrincipal, error) {
+func (f *fakeKeys) AuthenticateAPIKey(context.Context, string) (merchant.APIKeyPrincipal, error) {
 	return f.principal, f.err
 }
